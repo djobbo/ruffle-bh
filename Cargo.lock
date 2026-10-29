@@ -4397,7 +4397,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 dependencies = [
  "profiling-procmacros",
- "tracy-client",
+ "tracy-client 0.18.5",
 ]
 
 [[package]]
@@ -4849,7 +4849,7 @@ dependencies = [
  "symphonia",
  "thiserror 2.0.18",
  "tracing",
- "tracy-client",
+ "tracy-client 0.19.0",
  "ttf-parser",
  "unicode-segmentation",
  "url",
@@ -6420,7 +6420,7 @@ checksum = "0eaa1852afa96e0fe9e44caa53dc0bd2d9d05e0f2611ce09f97f8677af56e4ba"
 dependencies = [
  "tracing-core",
  "tracing-subscriber",
- "tracy-client",
+ "tracy-client 0.18.5",
 ]
 
 [[package]]
@@ -6443,6 +6443,17 @@ dependencies = [
  "loom",
  "once_cell",
  "rustc-demangle",
+ "tracy-client-sys",
+]
+
+[[package]]
+name = "tracy-client"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93fd676d8946eaeaff4881d26d2240a8d106fcaccbd47cb9f1389e3561ba490"
+dependencies = [
+ "loom",
+ "once_cell",
  "tracy-client-sys",
 ]
 
@@ -7180,7 +7191,7 @@ checksum = "a15a635a2a2ec0b9787589f17dbbffaa7960e779bcf0348a67f73c3e7665f9eb"
 dependencies = [
  "parking_lot",
  "thiserror 2.0.18",
- "tracy-client",
+ "tracy-client 0.18.5",
  "wgpu",
 ]
 
