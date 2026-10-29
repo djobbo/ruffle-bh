@@ -4397,7 +4397,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 dependencies = [
  "profiling-procmacros",
- "tracy-client",
+ "tracy-client 0.18.5",
 ]
 
 [[package]]
@@ -4849,7 +4849,7 @@ dependencies = [
  "symphonia",
  "thiserror 2.0.18",
  "tracing",
- "tracy-client",
+ "tracy-client 0.18.5",
  "ttf-parser",
  "unicode-segmentation",
  "url",
@@ -6414,13 +6414,13 @@ dependencies = [
 
 [[package]]
 name = "tracing-tracy"
-version = "0.11.4"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0eaa1852afa96e0fe9e44caa53dc0bd2d9d05e0f2611ce09f97f8677af56e4ba"
+checksum = "0b326790213b869d948a5d1ea56472ed5b20c7cefde07684ee35d6b7a980fef1"
 dependencies = [
  "tracing-core",
  "tracing-subscriber",
- "tracy-client",
+ "tracy-client 0.19.0",
 ]
 
 [[package]]
@@ -6442,8 +6442,19 @@ checksum = "6131992ff3e2cb96f407eb4eb005427ba15e2687260d99089b90e60e33169ce0"
 dependencies = [
  "loom",
  "once_cell",
+ "tracy-client-sys 0.29.0",
+]
+
+[[package]]
+name = "tracy-client"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93fd676d8946eaeaff4881d26d2240a8d106fcaccbd47cb9f1389e3561ba490"
+dependencies = [
+ "loom",
+ "once_cell",
  "rustc-demangle",
- "tracy-client-sys",
+ "tracy-client-sys 0.30.1",
 ]
 
 [[package]]
@@ -6451,6 +6462,16 @@ name = "tracy-client-sys"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab27f167b093214c68413a2e0bcd318f0591af475597405ff68138ba0a433379"
+dependencies = [
+ "cc",
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "tracy-client-sys"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08f4b6d2481c5e266e9def4c10e1680dbdfdd69523ed555a83d6675953a2785e"
 dependencies = [
  "cc",
  "windows-targets 0.52.6",
@@ -7180,7 +7201,7 @@ checksum = "a15a635a2a2ec0b9787589f17dbbffaa7960e779bcf0348a67f73c3e7665f9eb"
 dependencies = [
  "parking_lot",
  "thiserror 2.0.18",
- "tracy-client",
+ "tracy-client 0.18.5",
  "wgpu",
 ]
 
