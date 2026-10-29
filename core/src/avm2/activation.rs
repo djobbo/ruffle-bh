@@ -889,6 +889,22 @@ impl<'a, 'gc> Activation<'a, 'gc> {
             return Err(original_error);
         };
 
+        if cfg!(target_family = "wasm") || std::env::var_os("RUFFLE_AVM2_ERROR_TRACE").is_some() {
+            let name = method
+                .method_name()
+                .map(|name| name.into_owned())
+                .unwrap_or_else(|| "<anonymous>".to_string());
+            let op = ip
+                .checked_sub(1)
+                .and_then(|index| method.get_verified_info().parsed_code.get(index))
+                .map(|op| format!("{op:?}"))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            tracing::error!(
+                "AVM2 op error in {name} at ip {} ({op}): {original_error:?}",
+                ip.saturating_sub(1)
+            );
+        }
+
         let verified_info = method.get_verified_info();
         let exception_list = &verified_info.exceptions;
 

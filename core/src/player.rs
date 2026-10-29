@@ -340,6 +340,7 @@ pub struct Player {
     audio: Box<dyn AudioBackend>,
     navigator: Box<dyn NavigatorBackend>,
     storage: Box<dyn StorageBackend>,
+    filesystem: Box<dyn crate::backend::fs::FileSystemBackend>,
     log: Box<dyn LogBackend>,
     ui: Box<dyn UiBackend>,
     video: Box<dyn VideoBackend>,
@@ -2197,6 +2198,14 @@ impl Player {
         &mut *self.storage
     }
 
+    pub fn filesystem(&self) -> &dyn crate::backend::fs::FileSystemBackend {
+        &*self.filesystem
+    }
+
+    pub fn filesystem_mut(&mut self) -> &mut dyn crate::backend::fs::FileSystemBackend {
+        &mut *self.filesystem
+    }
+
     /// Only used by tests.
     // TODO: consider removing this?
     pub fn swap_storage(&mut self, storage: &mut Box<dyn StorageBackend>) {
@@ -2336,6 +2345,7 @@ impl Player {
                 renderer: this.renderer.deref_mut(),
                 audio: this.audio.deref_mut(),
                 navigator: this.navigator.deref_mut(),
+                filesystem: this.filesystem.deref_mut(),
                 ui: this.ui.deref_mut(),
                 action_queue,
                 gc_context,
@@ -2640,6 +2650,7 @@ pub struct PlayerBuilder {
     navigator: Option<Box<dyn NavigatorBackend>>,
     renderer: Option<Box<dyn RenderBackend>>,
     storage: Option<Box<dyn StorageBackend>>,
+    filesystem: Option<Box<dyn crate::backend::fs::FileSystemBackend>>,
     ui: Option<Box<dyn UiBackend>>,
     video: Option<Box<dyn VideoBackend>>,
     locale: Option<Box<dyn LocaleBackend>>,
@@ -2694,6 +2705,7 @@ impl PlayerBuilder {
             navigator: None,
             renderer: None,
             storage: None,
+            filesystem: None,
             ui: None,
             video: None,
             locale: None,
@@ -2790,6 +2802,16 @@ impl PlayerBuilder {
     #[inline]
     pub fn with_storage(mut self, storage: Box<dyn StorageBackend>) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    /// Sets the filesystem backend used by AIR `File`/`FileStream`.
+    #[inline]
+    pub fn with_filesystem(
+        mut self,
+        filesystem: Box<dyn crate::backend::fs::FileSystemBackend>,
+    ) -> Self {
+        self.filesystem = Some(filesystem);
         self
     }
 
@@ -3058,6 +3080,9 @@ impl PlayerBuilder {
         let storage = self
             .storage
             .unwrap_or_else(|| Box::new(storage::MemoryStorageBackend::new()));
+        let filesystem = self
+            .filesystem
+            .unwrap_or_else(|| Box::new(fs::NullFileSystem));
         let ui = self
             .ui
             .unwrap_or_else(|| Box::new(ui::NullUiBackend::new()));
@@ -3082,6 +3107,7 @@ impl PlayerBuilder {
                 navigator,
                 renderer,
                 storage,
+                filesystem,
                 ui,
                 video,
                 locale,

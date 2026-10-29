@@ -60,4 +60,7 @@ export const DEFAULT_CONFIG: Required<BaseLoadOptions> = {
     scrollingBehavior: ScrollingBehavior.Smart,
     deviceFontRenderer: DeviceFontRenderer.Embedded,
     backgroundExecutionMode: BackgroundExecutionMode.MainThread,
+    headless: false,
+    replayBytes: null,
+    replayName: "replay.replay",
 };

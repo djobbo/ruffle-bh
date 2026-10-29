@@ -111,6 +111,9 @@ pub struct UpdateContext<'gc> {
     /// The storage backend, used for storing persistent state
     pub storage: &'gc mut dyn StorageBackend,
 
+    /// The filesystem backend, used by AIR `File`/`FileStream`.
+    pub filesystem: &'gc mut dyn crate::backend::fs::FileSystemBackend,
+
     /// The logging backend, used for trace output capturing.
     ///
     /// **DO NOT** use this field directly, use the `avm_trace` method instead.

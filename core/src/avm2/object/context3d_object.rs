@@ -47,6 +47,7 @@ impl<'gc> Context3DObject<'gc> {
             Context3DData {
                 base: ScriptObjectData::new(class),
                 render_context: Cell::new(Some(context3d)),
+                disposed: Cell::new(false),
                 stage3d,
             },
         ))
@@ -54,6 +55,14 @@ impl<'gc> Context3DObject<'gc> {
 
     pub fn stage3d(self) -> Stage3DObject<'gc> {
         self.0.stage3d
+    }
+
+    pub fn is_disposed(self) -> bool {
+        self.0.disposed.get()
+    }
+
+    pub fn mark_disposed(self) {
+        self.0.disposed.set(true);
     }
 
     pub fn with_context_3d<R>(self, f: impl FnOnce(&mut dyn Context3D) -> R) -> R {
@@ -347,27 +356,34 @@ impl<'gc> Context3DObject<'gc> {
         dest: Rc<dyn Texture>,
         layer: u32,
     ) {
-        // Note - Flash appears to allow a source that's larger than the destination.
-        // Let's leave in this assertion to see if there any real SWFS relying on this
-        // behavior.
-        assert!(
-            source.width() <= dest.width(),
-            "Source width {:?} larger than dest width {:?}",
-            source.width(),
-            dest.width()
-        );
-        assert!(
-            source.height() <= dest.height(),
-            "Source height {:?} larger than dest height {:?}",
-            source.height(),
-            dest.height()
-        );
+        // Flash allows a source that's larger than the destination and clips
+        // it to the destination bounds. Brawlhalla relies on this for some UI
+        // atlases (e.g. a 46px-tall bitmap into a 45px-tall texture).
+        let source_width = source.width().min(dest.width());
+        let source_height = source.height().min(dest.height());
+        let source_pixels = source.pixels_rgba();
+        let source_stride = (source.width() * 4) as usize;
+
+        let cropped = if source_width == source.width() && source_height == source.height() {
+            None
+        } else {
+            let mut pixels =
+                Vec::with_capacity((source_width * source_height * 4) as usize);
+            for row in 0..source_height as usize {
+                let start = row * source_stride;
+                let end = start + (source_width * 4) as usize;
+                pixels.extend_from_slice(&source_pixels[start..end]);
+            }
+            Some(pixels)
+        };
+
+        let pixels = cropped.as_deref().unwrap_or(source_pixels);
 
         self.with_context_3d(|ctx| {
             ctx.process_command(Context3DCommand::CopyBitmapToTexture {
-                source: source.pixels_rgba(),
-                source_width: source.width(),
-                source_height: source.height(),
+                source: pixels,
+                source_width,
+                source_height,
                 dest,
                 layer,
             })
@@ -507,6 +523,8 @@ pub struct Context3DData<'gc> {
 
     #[collect(require_static)]
     render_context: Cell<Option<Box<dyn Context3D>>>,
+
+    disposed: Cell<bool>,
 
     stage3d: Stage3DObject<'gc>,
 }

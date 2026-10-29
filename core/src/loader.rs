@@ -1704,12 +1704,14 @@ impl<'gc> MovieLoader<'gc> {
 
         let movie = match sniffed_type {
             ContentType::Swf => {
+                tracing::info!("movie_loader_data: parsing SWF ({} bytes) url={url}", data.len());
                 let mut movie = SwfMovieData::from_data(
                     data,
                     url.clone(),
                     loader_url.clone(),
                     load_bytes_info,
                 )?;
+                tracing::info!("movie_loader_data: parsed SWF");
 
                 if matches!(vm_data, MovieLoaderVMData::Avm1 { .. }) {
                     // If AVM1 loads a SWF, that SWF is always interpreted as

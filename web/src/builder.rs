@@ -4,7 +4,7 @@ use crate::{
     DeviceFontRenderer, JavascriptPlayer, RUFFLE_GLOBAL_PANIC, RuffleHandle, ScrollingBehavior,
     SocketProxy, audio, log_adapter, storage, ui,
 };
-use js_sys::{Promise, RegExp};
+use js_sys::{Promise, RegExp, Uint8Array};
 use ruffle_core::backend::audio::{AudioBackend, NullAudioBackend};
 use ruffle_core::backend::storage::{MemoryStorageBackend, StorageBackend};
 use ruffle_core::backend::ui::FontDefinition;
@@ -13,8 +13,8 @@ use ruffle_core::config::{Letterbox, NetworkingAccessMode};
 use ruffle_core::events::{GamepadButton, KeyCode};
 use ruffle_core::font::{DefaultFont, FontFileData};
 use ruffle_core::ttf_parser;
-use ruffle_core::{Color, Player, PlayerBuilder, PlayerRuntime, StageAlign, StageScaleMode, swf};
-use ruffle_render::backend::RenderBackend;
+use ruffle_core::{Color, Player, PlayerBuilder, PlayerRuntime, StageAlign, StageScaleMode, ViewportDimensions, swf};
+use ruffle_render::backend::{RenderBackend, null::NullRenderer};
 use ruffle_render::quality::StageQuality;
 use ruffle_video_external::backend::ExternalVideoBackend;
 use ruffle_web_common::JsResult;
@@ -66,6 +66,9 @@ pub struct RuffleInstanceBuilder {
     pub(crate) url_rewrite_rules: Vec<(RegExp, String)>,
     pub(crate) scrolling_behavior: ScrollingBehavior,
     pub(crate) device_font_renderer: DeviceFontRenderer,
+    pub(crate) headless: bool,
+    pub(crate) replay_bytes: Option<Vec<u8>>,
+    pub(crate) replay_name: String,
 }
 
 impl Default for RuffleInstanceBuilder {
@@ -106,6 +109,9 @@ impl Default for RuffleInstanceBuilder {
             url_rewrite_rules: vec![],
             scrolling_behavior: ScrollingBehavior::Smart,
             device_font_renderer: DeviceFontRenderer::Embedded,
+            headless: false,
+            replay_bytes: None,
+            replay_name: "replay.replay".to_string(),
         }
     }
 }
@@ -358,6 +364,17 @@ impl RuffleInstanceBuilder {
         };
     }
 
+    #[wasm_bindgen(js_name = "setHeadless")]
+    pub fn set_headless(&mut self, value: bool) {
+        self.headless = value;
+    }
+
+    #[wasm_bindgen(js_name = "setReplay")]
+    pub fn set_replay(&mut self, bytes: Uint8Array, name: String) {
+        self.replay_bytes = Some(bytes.to_vec());
+        self.replay_name = name;
+    }
+
     // TODO: This should be split into two methods that either load url or load data
     // Right now, that's done immediately afterwards in TS
     pub fn build(&self, parent: HtmlElement, js_player: JavascriptPlayer) -> Promise {
@@ -503,6 +520,24 @@ impl RuffleInstanceBuilder {
     ) -> Result<(Box<dyn RenderBackend>, HtmlCanvasElement), Box<dyn Error>> {
         let window = web_sys::window().ok_or("Expected window")?;
         let document = window.document().ok_or("Expected document")?;
+        if self.headless {
+            let canvas: HtmlCanvasElement = document
+                .create_element("canvas")
+                .into_js_result()?
+                .dyn_into()
+                .map_err(|_| "Expected HtmlCanvasElement")?;
+            canvas.set_width(1280);
+            canvas.set_height(720);
+            let _ = canvas.style().set_property("display", "none");
+            return Ok((
+                Box::new(NullRenderer::new(ViewportDimensions {
+                    width: 1280,
+                    height: 720,
+                    scale_factor: 1.0,
+                })),
+                canvas,
+            ));
+        }
         #[cfg(not(any(
             feature = "canvas",
             feature = "webgl",
@@ -630,6 +665,9 @@ impl RuffleInstanceBuilder {
         &self,
         log_subscriber: Arc<Layered<WASMLayer, Registry>>,
     ) -> Box<dyn AudioBackend> {
+        if self.headless {
+            return Box::new(NullAudioBackend::new());
+        }
         if let Ok(audio) = audio::WebAudioBackend::new(log_subscriber) {
             Box::new(audio)
         } else {
@@ -674,11 +712,17 @@ impl RuffleInstanceBuilder {
 
         let (renderer, canvas) = self.create_renderer().await?;
 
+        ruffle_core::set_headless_mode(self.headless);
+        if let Some(bytes) = &self.replay_bytes {
+            ruffle_core::set_replay_bytes(self.replay_name.clone(), bytes.clone());
+        }
+
         let mut builder = PlayerBuilder::new()
             .with_boxed_renderer(renderer)
             .with_boxed_audio(self.create_audio_backend(log_subscriber.clone()))
             .with_navigator(self.create_navigator(log_subscriber.clone()))
-            .with_storage(self.create_storage_backend());
+            .with_storage(self.create_storage_backend())
+            .with_filesystem(Box::new(crate::fs::WebFileSystem::new()));
 
         // Create the external interface.
         if self.allow_script_access && self.allow_networking == NetworkingAccessMode::All {

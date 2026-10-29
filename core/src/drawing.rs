@@ -109,6 +109,12 @@ impl Drawing {
         self.render_handle.take();
     }
 
+    /// Exposes the finalized paths so `Graphics.readGraphicsData` can rebuild
+    /// the equivalent AS3 `IGraphicsData` objects.
+    pub(crate) fn paths(&self) -> &[DrawingPath] {
+        &self.paths
+    }
+
     /// Set fill style and reset fill rule to default.
     pub fn set_fill_style(&mut self, style: Option<FillStyle>) {
         self.new_fill(style, Some(self.default_winding_rule));
@@ -434,21 +440,21 @@ impl BitmapSource for Drawing {
 }
 
 #[derive(Debug, Clone)]
-struct DrawingFill {
-    style: FillStyle,
-    rule: FillRule,
-    commands: Vec<DrawCommand>,
+pub(crate) struct DrawingFill {
+    pub(crate) style: FillStyle,
+    pub(crate) rule: FillRule,
+    pub(crate) commands: Vec<DrawCommand>,
 }
 
 #[derive(Debug, Clone)]
-struct DrawingLine {
-    style: LineStyle,
-    commands: Vec<DrawCommand>,
-    is_closed: bool,
+pub(crate) struct DrawingLine {
+    pub(crate) style: LineStyle,
+    pub(crate) commands: Vec<DrawCommand>,
+    pub(crate) is_closed: bool,
 }
 
 #[derive(Debug, Clone)]
-enum DrawingPath {
+pub(crate) enum DrawingPath {
     Fill(DrawingFill),
     Line(DrawingLine),
 }

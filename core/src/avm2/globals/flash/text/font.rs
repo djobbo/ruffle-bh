@@ -149,6 +149,7 @@ pub fn register_font<'gc>(
     args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
     let object = args.get_object(activation, 0, "font")?;
+    tracing::info!("Font.registerFont({object:?})");
 
     if let Some(class) = object.as_class_object()
         && let Some((movie, id)) = activation
@@ -160,8 +161,10 @@ pub fn register_font<'gc>(
         && let Some(Character::Font(font)) = lib.character_by_id(id)
     {
         activation.context.library.register_global_font(font);
+        tracing::info!("Font.registerFont registered {:?}", font.descriptor().name());
         return Ok(Value::Undefined);
     }
 
+    tracing::warn!("Font.registerFont failed for {object:?}");
     Err(make_error_1508(activation, "font"))
 }

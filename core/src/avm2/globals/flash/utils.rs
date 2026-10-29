@@ -21,10 +21,13 @@ pub fn get_timer<'gc>(
     _this: Value<'gc>,
     _args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    Ok((Instant::now()
+    let real_ms = Instant::now()
         .duration_since(activation.context.start_time)
-        .as_millis() as u32)
-        .into())
+        .as_millis() as u32;
+    if let Some(fixed_ms) = crate::avm2::globals::__ruffle__::fixed_state_time_ms() {
+        return Ok(fixed_ms.into());
+    }
+    Ok(real_ms.into())
 }
 
 /// Implements `flash.utils.setInterval`

@@ -11,6 +11,7 @@ use crate::avm2::object::ClassObject;
 use crate::avm2::script::TranslationUnit;
 use crate::avm2::value::{Value, abc_default_value};
 use crate::avm2::verify::VerifiedMethodInfo;
+use crate::avm2::Avm2;
 use crate::string::AvmString;
 use crate::tag_utils::SwfMovie;
 use gc_arena::barrier::{Write, unlock};
@@ -249,6 +250,11 @@ impl<'gc> Method<'gc> {
 
     pub fn abc_method_index(self) -> u32 {
         self.0.abc_method
+    }
+
+    /// Whether this method comes from Ruffle's playerglobal ABC.
+    pub fn is_playerglobals(self, avm2: &Avm2<'gc>) -> bool {
+        self.0.txunit.domain().is_playerglobals_domain(avm2)
     }
 
     /// Get a reference to the ABC method entry this refers to.

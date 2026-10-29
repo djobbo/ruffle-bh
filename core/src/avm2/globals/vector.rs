@@ -424,8 +424,8 @@ pub fn push<'gc>(
     let this = this.as_object().unwrap();
 
     let value_type = if let Some(vs) = this.as_vector_storage() {
-        // Pushing nothing will still throw if the Vector is fixed.
-        vs.check_fixed(activation)?;
+        // Brawlhalla pushes onto vectors it created with `fixed = true`.
+        // Flash tolerates this in its Haxe-generated code; allow it here.
         vs.value_type_for_coercion(activation)
     } else {
         return Ok(Value::Undefined);

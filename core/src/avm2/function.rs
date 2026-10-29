@@ -2,7 +2,7 @@ use crate::avm2::Multiname;
 use crate::avm2::activation::Activation;
 use crate::avm2::error::{Error, make_error_1001};
 use crate::avm2::method::{Method, MethodKind, ParamConfig};
-use crate::avm2::object::{ClassObject, FunctionObject};
+use crate::avm2::object::{ClassObject, FunctionObject, TObject as _};
 use crate::avm2::scope::ScopeChain;
 use crate::avm2::traits::TraitKind;
 use crate::avm2::value::Value;
@@ -11,6 +11,18 @@ use gc_arena::{Collect, Gc};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::fmt;
+
+thread_local! {
+    static EXEC_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct ExecDepthGuard;
+
+impl Drop for ExecDepthGuard {
+    fn drop(&mut self) {
+        EXEC_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
 
 /// Represents a bound method.
 #[derive(Clone, Collect)]
@@ -240,6 +252,13 @@ pub fn exec<'gc>(
     activation: &mut Activation<'_, 'gc>,
     callee: Option<FunctionObject<'gc>>,
 ) -> Result<Value<'gc>, Error<'gc>> {
+    let depth = EXEC_DEPTH.with(|depth| {
+        let value = depth.get() + 1;
+        depth.set(value);
+        value
+    });
+    let _depth_guard = ExecDepthGuard;
+
     let mc = activation.gc();
 
     let caller_dxns = activation.default_xml_namespace();

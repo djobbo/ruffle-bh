@@ -17,9 +17,10 @@ use crate::avm2::vector::VectorStorage;
 use crate::avm2::{ArrayStorage, Error};
 use crate::avm2_stub_method;
 use crate::display_object::TDisplayObject;
-use crate::drawing::Drawing;
+use crate::drawing::{Drawing, DrawingPath};
 use crate::string::{AvmString, WStr};
 use either::Either;
+use ruffle_render::matrix::Matrix as RenderMatrix;
 use ruffle_render::shape_utils::{DrawCommand, FillRule, GradientType};
 use std::f64::consts::FRAC_1_SQRT_2;
 use swf::{
@@ -1356,13 +1357,215 @@ pub fn line_bitmap_style<'gc>(
 /// Implements `Graphics.readGraphicsData`
 pub fn read_graphics_data<'gc>(
     activation: &mut Activation<'_, 'gc>,
-    _this: Value<'gc>,
-    _args: FunctionArgs<'_, 'gc>,
+    this: Value<'gc>,
+    args: FunctionArgs<'_, 'gc>,
 ) -> Result<Value<'gc>, Error<'gc>> {
-    avm2_stub_method!(activation, "flash.display.Graphics", "readGraphicsData");
+    let this = this.as_object().unwrap();
+    let recurse = args.get_bool(0);
+
+    let mut values = Vec::new();
+    if let Some(this) = this.as_display_object() {
+        collect_graphics_data(activation, this, RenderMatrix::IDENTITY, recurse, &mut values)?;
+    }
+
+    tracing::debug!(
+        "readGraphicsData: {} paths -> {} objects (recurse={recurse})",
+        values.len() / 3,
+        values.len()
+    );
+
     let value_type = activation.avm2().class_defs().igraphicsdata;
-    let new_storage = VectorStorage::new(0, false, Some(value_type));
-    Ok(VectorObject::from_vector(new_storage, activation).into())
+    let storage = VectorStorage::from_values(values, false, Some(value_type));
+    Ok(VectorObject::from_vector(storage, activation).into())
+}
+
+fn collect_graphics_data<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    object: crate::display_object::DisplayObject<'gc>,
+    transform: RenderMatrix,
+    recurse: bool,
+    values: &mut Vec<Value<'gc>>,
+) -> Result<(), Error<'gc>> {
+    if let Some(drawing) = object.as_drawing() {
+        // `paths()` only contains closed fills/strokes; the UI frequently reads
+        // its graphics while a fill is still open, so finalize a copy first.
+        let mut drawing = drawing.clone();
+        drawing.set_fill_style(None);
+        drawing.set_line_style(None);
+        for path in drawing.paths() {
+            match path {
+                DrawingPath::Fill(fill) => {
+                    let fill_obj = solid_fill_object(activation, &fill.style)?;
+                    let path_obj = path_object(activation, &fill.commands, fill.rule, transform)?;
+                    let end_fill_class = activation.avm2().class_defs().graphicsendfill;
+                    let end_fill = construct_builtin(activation, end_fill_class, &[])?;
+
+                    values.push(fill_obj.into());
+                    values.push(path_obj.into());
+                    values.push(end_fill.into());
+                }
+                DrawingPath::Line(line) => {
+                    let style = line.style.fill_style();
+                    let fill_obj = solid_fill_object(activation, style)?;
+                    let thickness = line.style.width().to_pixels();
+                    let normal = AvmString::new_utf8(activation.gc(), "normal");
+                    let none = AvmString::new_utf8(activation.gc(), "none");
+                    let round = AvmString::new_utf8(activation.gc(), "round");
+                    let stroke_class = activation.avm2().class_defs().graphicsstroke;
+                    let stroke = construct_builtin(
+                        activation,
+                        stroke_class,
+                        &[
+                            Value::Number(thickness),
+                            Value::Bool(line.style.is_pixel_hinted()),
+                            normal.into(),
+                            none.into(),
+                            round.into(),
+                            Value::Number(3.0),
+                            fill_obj.into(),
+                        ],
+                    )?;
+                    let path_obj = path_object(
+                        activation,
+                        &line.commands,
+                        FillRule::NonZero,
+                        transform,
+                    )?;
+                    let end_fill_class = activation.avm2().class_defs().graphicsendfill;
+                    let end_fill = construct_builtin(activation, end_fill_class, &[])?;
+
+                    values.push(stroke.into());
+                    values.push(path_obj.into());
+                    values.push(end_fill.into());
+                }
+            }
+        }
+    }
+
+    if recurse {
+        if let Some(container) = object.as_container() {
+            use crate::display_object::TDisplayObjectContainer as _;
+            for child in container.iter_render_list() {
+                let child_transform = transform * child.base().matrix();
+                collect_graphics_data(activation, child, child_transform, true, values)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn solid_fill_object<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    style: &FillStyle,
+) -> Result<Object<'gc>, Error<'gc>> {
+    // Gradients and bitmap fills are approximated with a solid color so that
+    // vector UI at least remains visible; the game only needs the object
+    // sequence to hand back to `drawGraphicsData`.
+    let color = match style {
+        FillStyle::Color(color) => *color,
+        FillStyle::LinearGradient(gradient)
+        | FillStyle::RadialGradient(gradient)
+        | FillStyle::FocalGradient { gradient, .. } => gradient
+            .records
+            .first()
+            .map(|record| record.color)
+            .unwrap_or_default(),
+        FillStyle::Bitmap { .. } => Color::TRANSPARENT,
+    };
+
+    let class = activation.avm2().class_defs().graphicssolidfill;
+    construct_builtin(
+        activation,
+        class,
+        &[
+            Value::Integer(color.to_rgba() as i32),
+            Value::Number(color.a as f64 / 255.0),
+        ],
+    )
+}
+
+fn path_object<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    commands: &[DrawCommand],
+    rule: FillRule,
+    transform: RenderMatrix,
+) -> Result<Object<'gc>, Error<'gc>> {
+    let mut command_values = Vec::with_capacity(commands.len());
+    let mut data_values = Vec::new();
+
+    let mut push_point = |data: &mut Vec<Value<'gc>>, point: Point<Twips>| {
+        let point = transform * point;
+        data.push(Value::Number(point.x.to_pixels()));
+        data.push(Value::Number(point.y.to_pixels()));
+    };
+
+    for command in commands {
+        match *command {
+            DrawCommand::MoveTo(point) => {
+                command_values.push(Value::Integer(1));
+                push_point(&mut data_values, point);
+            }
+            DrawCommand::LineTo(point) => {
+                command_values.push(Value::Integer(2));
+                push_point(&mut data_values, point);
+            }
+            DrawCommand::QuadraticCurveTo { control, anchor } => {
+                command_values.push(Value::Integer(3));
+                push_point(&mut data_values, control);
+                push_point(&mut data_values, anchor);
+            }
+            DrawCommand::CubicCurveTo {
+                control_a,
+                control_b,
+                anchor,
+            } => {
+                command_values.push(Value::Integer(4));
+                push_point(&mut data_values, control_a);
+                push_point(&mut data_values, control_b);
+                push_point(&mut data_values, anchor);
+            }
+        }
+    }
+
+    let int_type = activation.avm2().class_defs().int;
+    let number_type = activation.avm2().class_defs().number;
+    let commands = VectorObject::from_vector(
+        VectorStorage::from_values(command_values, false, Some(int_type)),
+        activation,
+    );
+    let data = VectorObject::from_vector(
+        VectorStorage::from_values(data_values, false, Some(number_type)),
+        activation,
+    );
+    let winding = if matches!(rule, FillRule::NonZero) {
+        "nonZero"
+    } else {
+        "evenOdd"
+    };
+    let winding = AvmString::new_utf8(activation.gc(), winding);
+
+    let path_class = activation.avm2().class_defs().graphicspath;
+    construct_builtin(
+        activation,
+        path_class,
+        &[commands.into(), data.into(), winding.into()],
+    )
+}
+
+/// Instantiate a builtin class from its `Class` definition.
+fn construct_builtin<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    class: crate::avm2::class::Class<'gc>,
+    args: &[Value<'gc>],
+) -> Result<Object<'gc>, Error<'gc>> {
+    let value = class
+        .class_object()
+        .expect("builtin class has a class object")
+        .construct(activation, args)?;
+    Ok(value
+        .as_object()
+        .expect("builtin constructor returns an object"))
 }
 
 fn read_point<'gc>(

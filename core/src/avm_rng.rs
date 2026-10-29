@@ -62,5 +62,12 @@ impl AvmRng {
 
 // https://github.com/adobe-flash/avmplus/blob/65a05927767f3735db37823eebf7d743531f5d37/VMPI/PosixSpecificUtils.cpp#L18
 fn get_seed(locale: &dyn LocaleBackend) -> u32 {
+    // The replay oracle needs a deterministic `Math.random()` stream.
+    #[cfg(not(target_family = "wasm"))]
+    if let Ok(value) = std::env::var("RUFFLE_FIXED_RANDOM_SEED") {
+        if let Ok(seed) = value.parse::<u32>() {
+            return seed;
+        }
+    }
     locale.get_current_date_time().timestamp_micros() as u32
 }

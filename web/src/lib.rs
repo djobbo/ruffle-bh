@@ -2,8 +2,23 @@
 
 //! Ruffle web frontend.
 mod audio;
+
+// dlmalloc is pathologically slow for Brawlhalla's asset-loading allocation pattern.
+// Talc's wasm allocator is dramatically faster for this workload.
+#[cfg(target_family = "wasm")]
+#[global_allocator]
+static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
+
+/// Current wasm linear memory size in bytes. Used by the harness to track memory pressure.
+#[cfg(target_family = "wasm")]
+#[wasm_bindgen]
+pub fn ruffle_wasm_memory_bytes() -> usize {
+    core::arch::wasm32::memory_size(0) * 65536
+}
+
 mod builder;
 mod external_interface;
+mod fs;
 mod input;
 mod log_adapter;
 mod navigator;
@@ -14,7 +29,7 @@ mod zip;
 use crate::builder::RuffleInstanceBuilder;
 use external_interface::{external_to_js_value, js_to_external_value};
 use input::{web_input_to_ruffle_key_descriptor, web_to_ruffle_text_control};
-use js_sys::{Error as JsError, Uint8Array};
+use js_sys::{Array, Error as JsError, Object, Reflect, Uint8Array};
 use ruffle_core::context::UpdateContext;
 use ruffle_core::context_menu::ContextMenuCallback;
 use ruffle_core::events::{GamepadButton, MouseButton, MouseWheelDelta, TextControlCode};
@@ -321,6 +336,32 @@ impl RuffleHandle {
 
     pub fn is_playing(&self) -> bool {
         self.with_core(|core| core.is_playing()).unwrap_or_default()
+    }
+
+    #[wasm_bindgen(js_name = "replayDumpCounts")]
+    pub fn replay_dump_counts(&self) -> Result<Object, JsValue> {
+        let (states, boxes) = ruffle_core::replay_dump_counts();
+        let object = Object::new();
+        Reflect::set(&object, &"states".into(), &JsValue::from_f64(states as f64))?;
+        Reflect::set(&object, &"boxes".into(), &JsValue::from_f64(boxes as f64))?;
+        Ok(object)
+    }
+
+    #[wasm_bindgen(js_name = "takeReplayDump")]
+    pub fn take_replay_dump(&self) -> Result<Object, JsValue> {
+        let (states, boxes) = ruffle_core::take_replay_dump();
+        let states_array = Array::new();
+        for line in states {
+            states_array.push(&JsValue::from_str(&line));
+        }
+        let boxes_array = Array::new();
+        for line in boxes {
+            boxes_array.push(&JsValue::from_str(&line));
+        }
+        let object = Object::new();
+        Reflect::set(&object, &"states".into(), &states_array)?;
+        Reflect::set(&object, &"boxes".into(), &boxes_array)?;
+        Ok(object)
     }
 
     /// Switches to background tick mode, pausing the normal animation loop.
@@ -1024,7 +1065,9 @@ impl RuffleHandle {
             })
             .map_err(RuffleInstanceError::from)
             .and_then(std::convert::identity);
-        if let Err(e) = &ret {
+        if let Err(e) = &ret
+            && !matches!(e, RuffleInstanceError::TryLockError)
+        {
             tracing::error!("{}", e);
         }
         ret
@@ -1049,7 +1092,9 @@ impl RuffleHandle {
             })
             .map_err(RuffleInstanceError::from)
             .and_then(std::convert::identity);
-        if let Err(e) = &ret {
+        if let Err(e) = &ret
+            && !matches!(e, RuffleInstanceError::TryLockError)
+        {
             tracing::error!("{}", e);
         }
         ret
@@ -1081,7 +1126,9 @@ impl RuffleHandle {
             })
             .map_err(RuffleInstanceError::from)
             .and_then(std::convert::identity);
-        if let Err(e) = &ret {
+        if let Err(e) = &ret
+            && !matches!(e, RuffleInstanceError::TryLockError)
+        {
             tracing::error!("{}", e);
         }
         ret
@@ -1113,7 +1160,9 @@ impl RuffleHandle {
             })
             .map_err(RuffleInstanceError::from)
             .and_then(std::convert::identity);
-        if let Err(e) = &ret {
+        if let Err(e) = &ret
+            && !matches!(e, RuffleInstanceError::TryLockError)
+        {
             tracing::error!("{}", e);
         }
         ret
@@ -1287,7 +1336,9 @@ impl RuffleInstance {
             .try_lock()
             .map(|core| f(&core))
             .map_err(|_| RuffleInstanceError::TryLockError);
-        if let Err(e) = &ret {
+        if let Err(e) = &ret
+            && !matches!(e, RuffleInstanceError::TryLockError)
+        {
             tracing::error!("{}", e);
         }
         ret
@@ -1302,7 +1353,9 @@ impl RuffleInstance {
             .try_lock()
             .map(|mut core| f(&mut core))
             .map_err(|_| RuffleInstanceError::TryLockError);
-        if let Err(e) = &ret {
+        if let Err(e) = &ret
+            && !matches!(e, RuffleInstanceError::TryLockError)
+        {
             tracing::error!("{}", e);
         }
         ret

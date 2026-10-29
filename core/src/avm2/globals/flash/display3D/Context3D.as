@@ -98,10 +98,7 @@ package flash.display3D {
             return false;
         }
 
-        public function get driverInfo():String {
-            stub_getter("flash.display3D.Context3D", "driverInfo");
-            return "Dummy Ruffle driver";
-        }
+        public native function get driverInfo():String;
 
         private var _enableErrorChecking:Boolean = false;
         public function get enableErrorChecking():Boolean {

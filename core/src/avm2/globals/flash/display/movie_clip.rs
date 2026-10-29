@@ -382,8 +382,10 @@ pub fn goto_and_stop<'gc>(
     {
         let frame_or_label = args.get_value(0);
         let scene = args.try_get_string(1);
+        tracing::info!("MovieClip.gotoAndStop({frame_or_label:?})");
 
         goto_frame(activation, mc, frame_or_label, scene, StopOrPlay::Stop)?;
+        tracing::info!("MovieClip.gotoAndStop done");
     }
 
     Ok(Value::Undefined)

@@ -141,6 +141,36 @@ fn panic_hook(info: &PanicHookInfo) {
     }
 }
 
+#[cfg(windows)]
+fn start_memory_trim() {
+    std::thread::spawn(|| {
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetCurrentProcess() -> isize;
+        }
+        #[link(name = "psapi")]
+        unsafe extern "system" {
+            fn EmptyWorkingSet(process: isize) -> i32;
+            fn SetProcessWorkingSetSize(
+                process: isize,
+                minimum: usize,
+                maximum: usize,
+            ) -> i32;
+        }
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            unsafe {
+                let process = GetCurrentProcess();
+                // Drop clean file/asset-backed pages from the working set. The
+                // game keeps its logical assets; pages fault back in when used.
+                EmptyWorkingSet(process);
+                SetProcessWorkingSetSize(process, usize::MAX, usize::MAX);
+            }
+        }
+    });
+}
+
 fn main() -> Result<(), Error> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -150,6 +180,9 @@ fn main() -> Result<(), Error> {
 
     #[cfg(windows)]
     let _console = windows::Console::attach();
+
+    #[cfg(windows)]
+    start_memory_trim();
 
     let opt = Opt::parse();
 

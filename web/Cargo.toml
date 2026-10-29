@@ -31,6 +31,7 @@ wgpu-webgl = ["ruffle_render_wgpu", "ruffle_render_wgpu/webgl"]
 profiling = []
 
 [dependencies]
+talc = "5.1"
 console_error_panic_hook = { version = "0.1.7", optional = true }
 slotmap = { workspace = true }
 js-sys = { workspace = true }
@@ -74,7 +75,7 @@ features = [
     "HtmlInputElement", "HtmlTextAreaElement", "KeyboardEvent", "Location", "PageTransitionEvent", "PointerEvent",
     "Request", "RequestInit", "Response", "Storage", "WheelEvent", "Window", "ReadableStream", "RequestCredentials",
     "Url", "WebGlContextEvent", "Clipboard", "FocusEvent", "FocusOptions", "ShadowRoot", "Gamepad", "GamepadButton", "OffscreenCanvas",
-    "TextMetrics", "OffscreenCanvasRenderingContext2d"
+    "TextMetrics", "OffscreenCanvasRenderingContext2d", "XmlHttpRequest", "XmlHttpRequestResponseType"
 ]
 
 [target.'cfg(target_family = "wasm")'.dependencies]

@@ -74,6 +74,13 @@ impl<'gc> ErrorObject<'gc> {
     ) -> Self {
         let allocated_object = Self::new(activation, class);
 
+        if class.name() == activation.avm2().classes().object.name() {
+            tracing::error!("Error before system classes were ready: {message}");
+            return allocated_object;
+        }
+
+        tracing::warn!("AS3 error: {message}");
+
         let arguments = &[message.into(), error_id.into()];
 
         class

@@ -1,4 +1,6 @@
 package {
+    import __ruffle__.log_warn;
+
     [Ruffle(ConstructOnCall)]
     [Ruffle(InstanceAllocator)]
     public dynamic class Error {
@@ -24,6 +26,7 @@ package {
         private var _id:int;
 
         public function Error(message:* = "", id:* = 0) {
+            log_warn("[AS3 Error] " + message);
             this.message = message;
             this._id = id;
             this.name = prototype.name;

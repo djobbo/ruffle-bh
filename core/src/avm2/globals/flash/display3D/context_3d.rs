@@ -10,6 +10,7 @@ use crate::avm2::function::FunctionArgs;
 use crate::avm2::globals::slots::flash_geom_rectangle as rectangle_slots;
 use crate::avm2::parameters::ParametersExt;
 use crate::avm2_stub_method;
+use crate::string::AvmString;
 use ruffle_macros::istr;
 use ruffle_render::backend::BufferUsage;
 use ruffle_render::backend::{Context3DProfile, Context3DTextureFilter};
@@ -75,6 +76,10 @@ pub fn configure_back_buffer<'gc>(
         let height = args.get_u32(1);
         let anti_alias = args.get_u32(2);
         let enable_depth_and_stencil = args.get_bool(3);
+
+        tracing::warn!(
+            "Context3D.configureBackBuffer({width}x{height}, aa={anti_alias}, depth={enable_depth_and_stencil})"
+        );
 
         let old_swf = activation.context.root_swf.version() < 30;
 
@@ -217,6 +222,12 @@ pub fn present<'gc>(
 
     if let Some(context) = this.as_context_3d() {
         context.present();
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static PRESENTS: AtomicU64 = AtomicU64::new(0);
+        let count = PRESENTS.fetch_add(1, Ordering::Relaxed) + 1;
+        if count == 1 || count % 300 == 0 {
+            tracing::warn!("Context3D.present #{count}");
+        }
     }
     Ok(Value::Undefined)
 }
@@ -821,6 +832,24 @@ pub fn set_scissor_rectangle<'gc>(
     Ok(Value::Undefined)
 }
 
+pub fn get_driver_info<'gc>(
+    activation: &mut Activation<'_, 'gc>,
+    this: Value<'gc>,
+    _args: FunctionArgs<'_, 'gc>,
+) -> Result<Value<'gc>, Error<'gc>> {
+    let context3d = this.as_object().unwrap().as_context_3d().unwrap();
+    if context3d.is_disposed() {
+        return Ok(AvmString::new_utf8(activation.gc(), "Disposed").into());
+    }
+
+    let renderer_name = activation.context.renderer.name().to_string();
+    Ok(AvmString::new_utf8(
+        activation.gc(),
+        format!("Ruffle ({renderer_name})"),
+    )
+    .into())
+}
+
 pub fn dispose<'gc>(
     activation: &mut Activation<'_, 'gc>,
     this: Value<'gc>,
@@ -828,10 +857,8 @@ pub fn dispose<'gc>(
 ) -> Result<Value<'gc>, Error<'gc>> {
     let this = this.as_object().unwrap();
 
-    avm2_stub_method!(activation, "flash.display3D.Context3D", "dispose");
-    this.as_context_3d()
-        .unwrap()
-        .stage3d()
-        .clear_context3d(activation.gc());
+    let context3d = this.as_context_3d().unwrap();
+    context3d.mark_disposed();
+    context3d.stage3d().clear_context3d(activation.gc());
     Ok(Value::Undefined)
 }

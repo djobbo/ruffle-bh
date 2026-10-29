@@ -131,6 +131,23 @@ impl ActivePlayer {
         let player_id = PlayerId::new();
         let mut builder = PlayerBuilder::new();
 
+        // AIR content (e.g. Brawlhalla) reads all of its resources through
+        // `flash.filesystem.File`/`FileStream`. Point the desktop backend at the
+        // depot directory (override with RUFFLE_DEPOT).
+        let depot_root = std::env::var_os("RUFFLE_DEPOT")
+            .map(PathBuf::from)
+            .or_else(|| {
+                content_descriptor
+                    .url
+                    .to_file_path()
+                    .ok()
+                    .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+        builder = builder.with_filesystem(Box::new(
+            ruffle_core::backend::fs::DiskFileSystem::new(depot_root),
+        ));
+
         match CpalAudioBackend::new(preferences.output_device_name().as_deref()) {
             Ok(audio) => {
                 builder = builder.with_audio(audio);

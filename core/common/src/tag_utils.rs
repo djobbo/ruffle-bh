@@ -1,6 +1,8 @@
 use crate::sandbox::SandboxType;
 
 use gc_arena::{Collect, Gc, GcWeak, Mutation};
+#[cfg(not(target_family = "wasm"))]
+use memmap2::Mmap;
 use std::fmt::{Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
@@ -9,6 +11,96 @@ use swf::{Fixed8, HeaderExt, Rectangle, Twips};
 use url::Url;
 
 pub type SwfStream<'a> = swf::read::Reader<'a>;
+
+/// Backing store for a decompressed SWF.
+///
+/// Asset-heavy Brawlhalla movies are much larger decompressed than on disk.
+/// Keeping every one in a `Vec` makes Ruffle's private commit approach the
+/// depot size. Large movies are therefore written once to a reusable cache
+/// file and mapped read-only; the OS can evict those pages independently.
+#[derive(Debug)]
+pub enum MovieData {
+    Owned(Vec<u8>),
+    #[cfg(not(target_family = "wasm"))]
+    Mapped(Mmap),
+}
+
+impl MovieData {
+    const MMAP_THRESHOLD: usize = 128 * 1024;
+
+    fn from_vec(data: Vec<u8>, url: &str) -> Self {
+        #[cfg(target_family = "wasm")]
+        {
+            let _ = url;
+            return Self::Owned(data);
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if data.len() < Self::MMAP_THRESHOLD {
+                return Self::Owned(data);
+            }
+
+            let cache_dir = std::env::var_os("RUFFLE_SWF_MMAP_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::temp_dir().join("ruffle-swf-mmap"));
+            let _ = std::fs::create_dir_all(&cache_dir);
+
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            url.hash(&mut hasher);
+            let path = cache_dir.join(format!("{:016x}-{}.swf", hasher.finish(), data.len()));
+
+            if !path.exists() {
+                let temp_path = path.with_extension("swf.tmp");
+                if std::fs::write(&temp_path, &data).is_ok() {
+                    let _ = std::fs::rename(&temp_path, &path);
+                }
+            }
+
+            if let Ok(file) = std::fs::File::open(&path) {
+                // SAFETY: the mapping is read-only and the file is not modified
+                // while mapped (the cache path is content-keyed by URL+length).
+                if let Ok(mmap) = unsafe { Mmap::map(&file) } {
+                    if mmap.len() == data.len() {
+                        return Self::Mapped(mmap);
+                    }
+                }
+            }
+
+            Self::Owned(data)
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Owned(data) => data,
+            #[cfg(not(target_family = "wasm"))]
+            Self::Mapped(data) => data,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        self.as_slice().as_ptr()
+    }
+}
+
+impl AsRef<[u8]> for MovieData {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl Deref for MovieData {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
 
 /// A shared pointer to a `SwfMovieData`.
 #[derive(Clone, Collect, Copy, Debug)]
@@ -75,7 +167,7 @@ pub struct SwfMovieData {
     header: HeaderExt,
 
     /// Uncompressed SWF data.
-    data: Arc<Vec<u8>>,
+    data: Arc<MovieData>,
 
     /// The URL the SWF was downloaded from.
     url: String,
@@ -125,7 +217,7 @@ impl SwfMovieData {
         let sandbox_type = SandboxType::infer(url.as_str(), &header);
         Self {
             header,
-            data: Arc::new(Vec::new()),
+            data: Arc::new(MovieData::Owned(Vec::new())),
             url,
             loader_url,
             parameters: Vec::new(),
@@ -155,7 +247,7 @@ impl SwfMovieData {
         Self {
             header,
             compressed_len,
-            data: Arc::new(Vec::new()),
+            data: Arc::new(MovieData::Owned(Vec::new())),
             url,
             loader_url,
             parameters: Vec::new(),
@@ -182,7 +274,7 @@ impl SwfMovieData {
         Self {
             header,
             compressed_len: compressed_data.len(),
-            data: Arc::new(compressed_data),
+            data: Arc::new(MovieData::Owned(compressed_data)),
             url,
             loader_url,
             parameters: Vec::new(),
@@ -206,7 +298,7 @@ impl SwfMovieData {
         let sandbox_type = SandboxType::infer(movie_url.as_str(), &header);
         Self {
             header,
-            data: Arc::new(Vec::new()),
+            data: Arc::new(MovieData::Owned(Vec::new())),
             url: movie_url,
             loader_url: None,
             parameters: Vec::new(),
@@ -229,7 +321,10 @@ impl SwfMovieData {
         load_bytes_info: Option<LoadBytesInfo>,
     ) -> Result<Self, swf::error::Error> {
         let compressed_len = swf_data.len();
-        let swf_buf = swf::read::decompress_swf(swf_data)?;
+        let mut swf_buf = swf::read::decompress_swf(swf_data)?;
+        // Decompression can leave spare capacity behind; every preloaded SWF
+        // keeps this buffer alive, so trim it to the exact movie length.
+        swf_buf.data.shrink_to_fit();
         let encoding = swf::SwfStr::encoding_for_version(swf_buf.header.version());
 
         // The loader SWF has full control over the tags of a SWF loaded using
@@ -241,9 +336,10 @@ impl SwfMovieData {
             .map(|i| i.loader_sandbox_type)
             .unwrap_or_else(|| SandboxType::infer(url.as_str(), &swf_buf.header));
 
+        let data = MovieData::from_vec(swf_buf.data, &url);
         let mut movie = Self {
             header: swf_buf.header,
-            data: Arc::new(swf_buf.data),
+            data: Arc::new(data),
             url,
             loader_url,
             parameters: Vec::new(),
@@ -273,7 +369,7 @@ impl SwfMovieData {
         let sandbox_type = SandboxType::infer(url.as_str(), &header);
         let mut movie = Self {
             header,
-            data: Arc::new(Vec::new()),
+            data: Arc::new(MovieData::Owned(Vec::new())),
             url,
             loader_url: None,
             parameters: Vec::new(),
@@ -314,7 +410,7 @@ impl SwfMovieData {
     }
 
     pub fn data(&self) -> &[u8] {
-        &self.data
+        self.data.as_ref().as_ref()
     }
 
     /// Returns the suggested string encoding for the given SWF version.
@@ -412,7 +508,7 @@ impl Debug for SwfMovieData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SwfMovieData")
             .field("header", &self.header)
-            .field("data", &self.data.len())
+            .field("data", &self.data.as_ref().len())
             .field("url", &self.url)
             .field("loader_url", &self.loader_url)
             .field("parameters", &self.parameters)
@@ -428,7 +524,8 @@ impl Debug for SwfMovieData {
 #[derive(Debug, Clone, Collect)]
 #[collect(no_drop)]
 pub struct SwfSlice {
-    entire_data: Arc<Vec<u8>>,
+    #[collect(require_static)]
+    entire_data: Arc<MovieData>,
     swf_version: u8,
 
     pub start: usize,
@@ -483,7 +580,7 @@ impl SwfSlice {
     /// This function panics if the given slice is not a subslice of the current
     /// slice.
     pub fn to_subslice(&self, slice: &[u8]) -> Self {
-        let self_pval = self.entire_data.as_ptr() as usize;
+        let self_pval = self.entire_data.as_ref().as_ptr() as usize;
         let slice_pval = slice.as_ptr() as usize;
 
         if (self_pval + self.start) <= slice_pval && slice_pval < (self_pval + self.end) {
@@ -503,8 +600,8 @@ impl SwfSlice {
     /// This function allows subslices outside the current slice to be formed,
     /// as long as they are valid subslices of the movie itself.
     pub fn to_unbounded_subslice(&self, slice: &[u8]) -> Self {
-        let self_pval = self.entire_data.as_ptr() as usize;
-        let self_len = self.entire_data.len();
+        let self_pval = self.entire_data.as_ref().as_ptr() as usize;
+        let self_len = self.entire_data.as_ref().len();
         let slice_pval = slice.as_ptr() as usize;
 
         if self_pval <= slice_pval && slice_pval < (self_pval + self_len) {
@@ -533,12 +630,12 @@ impl SwfSlice {
 
     /// Convert the SwfSlice into a standard data slice.
     pub fn data(&self) -> &[u8] {
-        &self.entire_data[self.start..self.end]
+        &self.entire_data.as_ref().as_ref()[self.start..self.end]
     }
 
     /// Access the entire data of the movie backing this SwfSlice.
     pub fn entire_data(&self) -> &[u8] {
-        &self.entire_data
+        self.entire_data.as_ref().as_ref()
     }
 
     /// Checks if this slice is empty

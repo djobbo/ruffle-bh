@@ -5,6 +5,7 @@ use crate::avm2::activation::Activation;
 use crate::avm2::function::FunctionArgs;
 use crate::avm2::globals::slots::flash_events_event_dispatcher as slots;
 use crate::avm2::object::{EventObject, FunctionObject, Object, TObject as _};
+use crate::avm2::value::Value;
 use crate::display_object::TDisplayObject;
 use crate::string::AvmString;
 use fnv::FnvHashMap;
@@ -407,7 +408,12 @@ fn dispatch_event_to_target<'gc>(
 
         let global = activation.context.avm2.toplevel_global_object().unwrap();
 
-        let args = &[event.into()];
+        let event_value: Value<'gc> = event.into();
+        let args: &[Value<'gc>] = if handler.executable().signature().is_empty() {
+            &[]
+        } else {
+            std::slice::from_ref(&event_value)
+        };
         let result = handler.call(activation, global.into(), FunctionArgs::from_slice(args));
         if let Err(err) = result {
             let event_name = event.event().event_type();

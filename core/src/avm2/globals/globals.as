@@ -3,6 +3,7 @@
 
 include "__ruffle__/dependent.as"
 include "__ruffle__/stubs.as"
+include "__ruffle__/air.as"
 
 include "Date.as"
 include "Math.as"
@@ -165,6 +166,7 @@ include "flash/errors/StackOverflowError.as"
 
 // Event needs to come before its subclasses
 include "flash/events/Event.as"
+include "flash/events/FileListEvent.as"
 include "flash/automation/StageCaptureEvent.as"
 include "flash/events/TextEvent.as"
 include "flash/events/ActivityEvent.as"
@@ -356,6 +358,7 @@ include "flash/net/URLStream.as"
 include "flash/net/URLVariables.as"
 include "flash/net/XMLSocket.as"
 
+include "flash/filesystem/FileMode.as"
 include "flash/filesystem/File.as" // File extends FileReference
 include "flash/filesystem/FileStream.as"
 

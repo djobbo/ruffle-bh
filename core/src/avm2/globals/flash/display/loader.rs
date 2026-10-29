@@ -251,6 +251,7 @@ pub fn load_bytes<'gc>(
 
     let arg0 = args.get_object(activation, 0, "data")?;
     let bytes = arg0.as_bytearray().unwrap().bytes().to_vec();
+    tracing::info!("Loader.loadBytes({} bytes)", bytes.len());
     let context = args.try_get_object(1);
 
     let loader_info = this

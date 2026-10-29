@@ -812,6 +812,27 @@ export interface BaseLoadOptions {
      * @default BackgroundExecutionMode.MainThread
      */
     backgroundExecutionMode?: BackgroundExecutionMode;
+
+    /**
+     * Run the player without a GPU/WebGL renderer. The game logic still runs,
+     * but nothing is drawn. Intended for headless replay extraction.
+     *
+     * @default false
+     */
+    headless?: boolean;
+
+    /**
+     * Replay bytes handed to the diagnostic Brawlhalla replay loader.
+     * Requires the patched Ruffle/Brawlhalla build.
+     */
+    replayBytes?: Uint8Array | null;
+
+    /**
+     * Filename shown to ActionScript when `replayBytes` is loaded.
+     *
+     * @default "replay.replay"
+     */
+    replayName?: string;
 }
 
 /**

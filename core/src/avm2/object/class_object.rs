@@ -31,6 +31,18 @@ use ruffle_macros::istr;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 
+thread_local! {
+    static INIT_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+struct InitDepthGuard;
+
+impl Drop for InitDepthGuard {
+    fn drop(&mut self) {
+        INIT_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
 /// An Object which can be called to execute its function code.
 #[derive(Collect, Clone, Copy)]
 #[collect(no_drop)]
@@ -382,6 +394,31 @@ impl<'gc> ClassObject<'gc> {
     ) -> Result<Value<'gc>, Error<'gc>> {
         let scope = self.0.instance_scope.get();
         let method = self.init_method();
+
+        let init_depth = INIT_DEPTH.with(|depth| {
+            let value = depth.get() + 1;
+            depth.set(value);
+            value
+        });
+        let _init_guard = InitDepthGuard;
+        if init_depth == 200 || init_depth == 400 {
+            let receiver_class = match receiver {
+                Value::Object(object) => object.instance_class().name().local_name().to_string(),
+                _ => "<primitive>".to_string(),
+            };
+            let stack = activation.avm2().capture_call_stack();
+            let mut output = crate::string::WString::new();
+            stack.display(&mut output);
+            let text = output.to_utf8_lossy();
+            let tail = &text[text.len().saturating_sub(4000)..];
+            tracing::warn!(
+                "call_init depth {} on {} receiver {} stack:\n{}",
+                init_depth,
+                self.name().local_name(),
+                receiver_class,
+                tail
+            );
+        }
 
         if let Some(method) = method {
             // Provide a callee object if necessary

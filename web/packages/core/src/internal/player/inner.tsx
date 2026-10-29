@@ -115,6 +115,29 @@ function sanitizeParameters(
     return output;
 }
 
+function readDumpCounts(value: object | undefined): {
+    states: number;
+    boxes: number;
+} {
+    if (value && "states" in value && "boxes" in value) {
+        return { states: Number(value.states), boxes: Number(value.boxes) };
+    }
+    return { states: 0, boxes: 0 };
+}
+
+function readDump(value: object | undefined): {
+    states: string[];
+    boxes: string[];
+} {
+    if (value && "states" in value && "boxes" in value) {
+        return {
+            states: Array.isArray(value.states) ? value.states.map(String) : [],
+            boxes: Array.isArray(value.boxes) ? value.boxes.map(String) : [],
+        };
+    }
+    return { states: [], boxes: [] };
+}
+
 class Point {
     constructor(
         public x: number,
@@ -1037,6 +1060,14 @@ export class InnerPlayer {
             return this.instance.is_playing();
         }
         return false;
+    }
+
+    replayDumpCounts(): { states: number; boxes: number } {
+        return readDumpCounts(this.instance?.replayDumpCounts());
+    }
+
+    takeReplayDump(): { states: string[]; boxes: string[] } {
+        return readDump(this.instance?.takeReplayDump());
     }
 
     /**

@@ -802,6 +802,15 @@ impl<'gc> BitmapRawData<'gc> {
         if let Ok(ref handle) = bitmap_handle {
             self.dirty_state = DirtyState::Clean;
             self.bitmap_handle = Some(handle.clone());
+
+            // Embedded loader/asset bitmaps are normally render-only. Once
+            // the GPU copy exists, the CPU RGBA buffer is dead weight. Keep
+            // it for AVM2-visible BitmapData objects, where scripts may call
+            // getPixel/draw/getPixels.
+            if self.avm2_object.is_none() {
+                self.pixels.clear();
+                self.pixels.shrink_to_fit();
+            }
         }
         bitmap_handle
     }
@@ -854,6 +863,16 @@ impl<'gc> BitmapRawData<'gc> {
         }
     }
 
+    fn ensure_cpu_pixels(&mut self) {
+        let expected = self.width as usize * self.height as usize;
+        if self.pixels.len() != expected {
+            // The GPU copy is authoritative after a render-only bitmap has
+            // released its CPU buffer. Mutating it again recreates a blank
+            // CPU buffer instead of panicking.
+            self.pixels.resize(expected, Color::rgba(0, 0, 0, 0));
+        }
+    }
+
     pub fn pixels(&self) -> &[Color] {
         &self.pixels
     }
@@ -879,11 +898,13 @@ impl<'gc> BitmapRawData<'gc> {
 
     #[inline]
     pub fn set_pixel32_raw(&mut self, x: u32, y: u32, color: Color) {
+        self.ensure_cpu_pixels();
         self.pixels[(x + y * self.width) as usize] = color;
     }
 
     #[inline]
     pub fn set_pixel32_row_raw(&mut self, x1: u32, x2: u32, y: u32, color: Color) {
+        self.ensure_cpu_pixels();
         let p1 = (x1 + y * self.width) as usize;
         let p2 = (x2 + y * self.width) as usize;
         let slice = &mut self.pixels[p1..p2];
@@ -892,6 +913,7 @@ impl<'gc> BitmapRawData<'gc> {
 
     #[inline]
     pub fn fill(&mut self, color: Color) {
+        self.ensure_cpu_pixels();
         self.pixels.fill(color);
     }
 

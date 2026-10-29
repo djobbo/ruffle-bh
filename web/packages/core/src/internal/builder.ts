@@ -148,6 +148,14 @@ export function configureBuilder(
     if (isExplicit(config.deviceFontRenderer)) {
         builder.setDeviceFontRenderer(config.deviceFontRenderer);
     }
+
+    if (isExplicit(config.headless)) {
+        builder.setHeadless(config.headless);
+    }
+
+    if (isExplicit(config.replayBytes) && config.replayBytes) {
+        builder.setReplay(config.replayBytes, config.replayName ?? "replay.replay");
+    }
 }
 
 /**

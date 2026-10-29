@@ -932,6 +932,19 @@ impl<'gc> MovieClip<'gc> {
     }
 
     fn goto_frame_now(self, context: &mut UpdateContext<'gc>, goto_info: GotoInfo) {
+        if std::env::var_os("RUFFLE_GOTO_TRACE").is_some() {
+            let movie = self.movie();
+            if movie.loader_url().is_some() {
+                tracing::warn!(
+                    "goto_frame_now frame={} current={} url={} loader_url={:?}",
+                    goto_info.frame,
+                    self.current_frame(),
+                    movie.url(),
+                    movie.loader_url()
+                );
+            }
+        }
+
         match goto_info.stop_or_play {
             StopOrPlay::Stop => self.stop(context),
             StopOrPlay::Play => self.play(),

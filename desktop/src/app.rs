@@ -347,7 +347,9 @@ impl MainWindow {
         } else {
             None
         });
-        self.gui.window().set_visible(true);
+        // `--no-gui` is also used by the replay extraction service; keeping the
+        // window hidden is what makes it headless while the player keeps ticking.
+        self.gui.window().set_visible(!self.no_gui);
 
         let viewport_scale_factor = self.gui.window().scale_factor();
         if let Some(mut player) = self.player.get() {
@@ -568,7 +570,7 @@ impl ApplicationHandler<RuffleEvent> for App {
 
             if movie_url.is_none() {
                 // No SWF provided on command line; show window with dummy movie immediately.
-                window.set_visible(true);
+                window.set_visible(!no_gui);
                 loaded = LoadingState::Loaded;
             }
 

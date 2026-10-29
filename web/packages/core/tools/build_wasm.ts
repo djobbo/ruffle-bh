@@ -2,12 +2,14 @@ import { execFileSync } from "child_process";
 import { copyFileSync, mkdirSync, rmSync } from "fs";
 import * as process from "process";
 
+const WASM_OPT = process.env["WASM_OPT"] ?? "wasm-opt";
+
 function runWasmOpt({ path, flags }: { path: string; flags?: string[] }) {
-    let args = ["-o", path, "-O", "-g", path];
+    let args = ["-o", path, "-O3", "-g", path];
     if (flags) {
         args = args.concat(flags);
     }
-    execFileSync("wasm-opt", args, {
+    execFileSync(WASM_OPT, args, {
         stdio: "inherit",
     });
 }
@@ -160,7 +162,7 @@ function buildWasm(
 }
 function detectWasmOpt() {
     try {
-        execFileSync("wasm-opt", ["--version"]);
+        execFileSync(WASM_OPT, ["--version"]);
         return true;
     } catch (_a) {
         return false;

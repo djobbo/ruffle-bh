@@ -31,6 +31,16 @@ export interface PlayerV1 {
     config: URLLoadOptions | DataLoadOptions | object;
 
     /**
+     * Number of dump_state / dump_box lines buffered by the diagnostic build.
+     */
+    replayDumpCounts(): { states: number; boxes: number };
+
+    /**
+     * Drain the diagnostic replay dump buffers.
+     */
+    takeReplayDump(): { states: string[]; boxes: string[] };
+
+    /**
      * The effective config loaded with the last call to `load()`.
      * If no such call has been made, this will be `null`.
      */

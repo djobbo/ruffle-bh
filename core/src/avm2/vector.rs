@@ -202,9 +202,9 @@ impl<'gc> VectorStorage<'gc> {
     pub fn push(
         &mut self,
         value: Value<'gc>,
-        activation: &mut Activation<'_, 'gc>,
+        _activation: &mut Activation<'_, 'gc>,
     ) -> Result<(), Error<'gc>> {
-        self.check_fixed(activation)?;
+        // See the `Vector.push` global: Brawlhalla grows fixed vectors.
         self.storage.push(value);
 
         Ok(())

@@ -48,6 +48,14 @@ export class PlayerV1Impl implements PlayerV1 {
         return this.#inner.isPlaying;
     }
 
+    replayDumpCounts(): { states: number; boxes: number } {
+        return this.#inner.replayDumpCounts();
+    }
+
+    takeReplayDump(): { states: string[]; boxes: string[] } {
+        return this.#inner.takeReplayDump();
+    }
+
     get volume(): number {
         return this.#inner.volume;
     }

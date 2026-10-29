@@ -12,7 +12,7 @@ use crate::tag_utils::{self, ControlFlow, SwfMovie, SwfMovieData, SwfSlice, SwfS
 use gc_arena::Collect;
 use swf::TagCode;
 
-mod __ruffle__;
+pub(crate) mod __ruffle__;
 mod array;
 mod avmplus;
 mod boolean;

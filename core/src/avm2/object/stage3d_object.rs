@@ -61,10 +61,25 @@ impl<'gc> Stage3DObject<'gc> {
     pub fn update_context3d_status(self, context: &mut UpdateContext<'gc>) {
         if let Context3DStatus::Requested { profile } = self.0.context3d_status.get() {
             let context3d = match context.renderer.create_context3d(profile) {
-                Ok(context3d) => context3d,
+                Ok(context3d) => {
+                    tracing::warn!("Stage3D context created with profile {profile:?}");
+                    context3d
+                }
                 Err(err) => {
                     tracing::error!("Failed to create Context3d: {}", err);
-                    // TODO the docs say FP dispatches an "error" event here
+                    // Flash Player dispatches an ErrorEvent (3702) so content can
+                    // fall back; without it, Stage3D apps hang on a loading screen.
+                    let event = {
+                        let mut activation = crate::avm2::Activation::from_nothing(context);
+                        Some(EventObject::error_event(
+                            &mut activation,
+                            "Context3D not available! Possible reasons: wrong renderMode or missing device support.",
+                            3702,
+                        ))
+                    };
+                    if let Some(event) = event {
+                        Avm2::dispatch_event(context, event, self.into());
+                    }
                     return;
                 }
             };
