@@ -260,6 +260,39 @@ impl<'gc> ScriptObjectWrapper<'gc> {
         // https://github.com/adobe/avmplus/blob/858d034a3bd3a54d9b70909386435cf4aec81d21/core/ScriptObject.cpp#L311-L315
         let key = maybe_int_property(local_name);
 
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if let Ok(path) = std::env::var("RUFFLE_SLOT_TRACE") {
+                use std::io::Write as _;
+                let name = local_name.to_utf8_lossy().to_string();
+                if matches!(value, Value::Number(_) | Value::Integer(_))
+                    && (name == "_-92m"
+                        || name == "_-K5u"
+                        || name == "_-2S"
+                        || name == "_-FY")
+                {
+                    let rendered = match value {
+                        Value::Number(number) => format!("n:{number}"),
+                        Value::Integer(number) => format!("i:{number}"),
+                        _ => "other".to_string(),
+                    };
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        let _ = writeln!(
+                            file,
+                            "{}\t{}\t{}",
+                            crate::avm2::globals::__ruffle__::current_dump_frame(),
+                            name,
+                            rendered
+                        );
+                    }
+                }
+            }
+        }
+
         self.values_mut(activation.gc()).insert(key, value);
         Ok(())
     }
@@ -291,6 +324,115 @@ impl<'gc> ScriptObjectWrapper<'gc> {
 
     /// Set a slot by its index.
     pub fn set_slot(self, id: usize, value: Value<'gc>, mc: &Mutation<'gc>) {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if let Ok(path) = std::env::var("RUFFLE_WRITE_TRACE") {
+                use std::io::Write as _;
+                let frame = crate::avm2::globals::__ruffle__::current_dump_frame();
+                let class = self
+                    .instance_class()
+                    .name()
+                    .local_name()
+                    .to_utf8_lossy()
+                    .to_string();
+                if (440..=446).contains(&frame)
+                    && class == "_-w2"
+                    && matches!(value, Value::Number(_) | Value::Integer(_))
+                {
+                    let mut current = Some(self.instance_class());
+                    let mut slot_name = None;
+                    while let Some(current_class) = current {
+                        for instance_trait in current_class.traits() {
+                            let crate::avm2::traits::TraitKind::Slot { slot_id, .. } =
+                                instance_trait.kind()
+                            else {
+                                continue;
+                            };
+                            if *slot_id == id {
+                                slot_name = Some(
+                                    instance_trait
+                                        .name()
+                                        .local_name()
+                                        .to_utf8_lossy()
+                                        .to_string(),
+                                );
+                                break;
+                            }
+                        }
+                        if slot_name.is_some() {
+                            break;
+                        }
+                        current = current_class.super_class();
+                    }
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        let _ = writeln!(file, "WRITE slot frame={frame} class={class} id={id} name={slot_name:?} value={value:?}");
+                    }
+                }
+            }
+            // Dev-only: trace the Seq cursor fields so a transition assignment
+            // can be identified without guessing from the final state dump.
+            if let Ok(path) = std::env::var("RUFFLE_SLOT_TRACE") {
+                use std::io::Write as _;
+                if !matches!(value, Value::Number(_) | Value::Integer(_)) {
+                    let slots_write =
+                        field!(Gc::write(mc, self.0), ScriptObjectData, slots).as_deref();
+                    slots_write[id].unlock().set(value);
+                    return;
+                }
+                let mut class = Some(self.instance_class());
+                let mut name = None;
+                while let Some(current) = class {
+                    for instance_trait in current.traits() {
+                        let crate::avm2::traits::TraitKind::Slot { slot_id, .. } =
+                            instance_trait.kind()
+                        else {
+                            continue;
+                        };
+                        if *slot_id == id {
+                            name = Some(
+                                instance_trait
+                                    .name()
+                                    .local_name()
+                                    .to_utf8_lossy()
+                                    .to_string(),
+                            );
+                            break;
+                        }
+                    }
+                    if name.is_some() {
+                        break;
+                    }
+                    class = current.super_class();
+                }
+                if let Some(name) = name {
+                    if name == "_-92m" || name == "_-K5u" || name == "_-2S" || name == "_-FY" {
+                        let rendered = match value {
+                            Value::Number(number) => format!("n:{number}"),
+                            Value::Integer(number) => format!("i:{number}"),
+                            _ => "other".to_string(),
+                        };
+                        if let Ok(mut file) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&path)
+                        {
+                            let _ = writeln!(
+                                file,
+                                "{}\t{}\t{}",
+                                crate::avm2::globals::__ruffle__::current_dump_frame(),
+                                name,
+                                rendered
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         let slots_write = field!(Gc::write(mc, self.0), ScriptObjectData, slots).as_deref();
 
         slots_write[id].unlock().set(value);

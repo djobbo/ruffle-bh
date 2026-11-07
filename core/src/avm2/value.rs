@@ -1075,6 +1075,71 @@ impl<'gc> Value<'gc> {
         value: Value<'gc>,
         activation: &mut Activation<'_, 'gc>,
     ) -> Result<(), Error<'gc>> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if let Ok(path) = std::env::var("RUFFLE_WRITE_TRACE") {
+                use std::io::Write as _;
+                let frame = crate::avm2::globals::__ruffle__::current_dump_frame();
+                if (435..=450).contains(&frame)
+                    && matches!(value, Value::Number(number) if (number - 1.0).abs() < 1e-9)
+                {
+                    let class = self
+                        .as_object()
+                        .map(|object| {
+                            object
+                                .instance_class()
+                                .name()
+                                .local_name()
+                                .to_utf8_lossy()
+                                .to_string()
+                        })
+                        .unwrap_or_default();
+                    let name = multiname
+                        .local_name()
+                        .map(|local| local.to_utf8_lossy().to_string())
+                        .unwrap_or_default();
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        let _ = writeln!(file, "WRITE frame={frame} class={class} name={name} value={value:?}");
+                    }
+                }
+            }
+            if let Ok(path) = std::env::var("RUFFLE_SLOT_TRACE") {
+                use std::io::Write as _;
+                if let Some(local_name) = multiname.local_name() {
+                    let name = local_name.to_utf8_lossy().to_string();
+                    if matches!(value, Value::Number(_) | Value::Integer(_))
+                        && (name == "_-92m"
+                            || name == "_-K5u"
+                            || name == "_-2S"
+                            || name == "_-FY")
+                    {
+                        let rendered = match value {
+                            Value::Number(number) => format!("n:{number}"),
+                            Value::Integer(number) => format!("i:{number}"),
+                            _ => "other".to_string(),
+                        };
+                        if let Ok(mut file) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&path)
+                        {
+                            let _ = writeln!(
+                                file,
+                                "{}\t{}\t{}",
+                                crate::avm2::globals::__ruffle__::current_dump_frame(),
+                                name,
+                                rendered
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         let vtable = self.vtable(activation);
 
         match vtable.get_trait(multiname) {

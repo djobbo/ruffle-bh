@@ -22,6 +22,10 @@ impl<'gc> CallStack<'gc> {
         self.stack.pop();
     }
 
+    pub fn method_indices(&self) -> Vec<u32> {
+        self.stack.iter().map(|method| method.abc_method_index()).collect()
+    }
+
     pub fn display(&self, output: &mut WString) {
         for method in self.stack.iter().rev() {
             output.push_utf8("\n\tat ");

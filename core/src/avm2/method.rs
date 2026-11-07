@@ -252,6 +252,10 @@ impl<'gc> Method<'gc> {
         self.0.abc_method
     }
 
+    pub fn abc_method_body_index(self) -> Option<u32> {
+        self.0.abc_method_body
+    }
+
     /// Whether this method comes from Ruffle's playerglobal ABC.
     pub fn is_playerglobals(self, avm2: &Avm2<'gc>) -> bool {
         self.0.txunit.domain().is_playerglobals_domain(avm2)

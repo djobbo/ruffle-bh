@@ -176,6 +176,12 @@ static DEBUG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 static DUMP_STATE_FRAME: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 
+/// Current fixed-clock state frame, for diagnostics outside this module.
+#[cfg(not(target_family = "wasm"))]
+pub fn current_dump_frame() -> u64 {
+    DUMP_STATE_FRAME.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(not(target_family = "wasm"))]
 static STATE_TIME_STARTED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
@@ -277,6 +283,198 @@ fn dump_debug_11000<'gc>(
                 } else {
                     serde_json::Value::Null
                 };
+                let combat = state_prop(entity, "_-Kc", activation);
+                let mut powers = Vec::new();
+                let active_power = state_prop(combat, "_-o3I", activation);
+                if active_power.as_object().is_some() {
+                    let power_type = state_prop(active_power, "_-V6B", activation);
+                    let frame_array = state_prop(active_power, "_-cA", activation);
+                    let mut anim_frame_at_tick = Vec::new();
+                    if let Some(array_object) = frame_array.as_object() {
+                        if let Some(array) = array_object.as_array_storage() {
+                            for index in 0..array.length() {
+                                match array.get(index) {
+                                    Some(Value::Number(number)) => {
+                                        anim_frame_at_tick.push(serde_json::json!(number))
+                                    }
+                                    Some(Value::Integer(number)) => {
+                                        anim_frame_at_tick.push(serde_json::json!(number))
+                                    }
+                                    Some(_) => anim_frame_at_tick.push(serde_json::Value::Null),
+                                    None => anim_frame_at_tick.push(serde_json::Value::Null),
+                                }
+                            }
+                        } else if let Some(vector) = array_object.as_vector_storage() {
+                            let values: Vec<Value<'gc>> = vector.iter().collect();
+                            drop(vector);
+                            for value in values {
+                                match value {
+                                    Value::Number(number) => {
+                                        anim_frame_at_tick.push(serde_json::json!(number))
+                                    }
+                                    Value::Integer(number) => {
+                                        anim_frame_at_tick.push(serde_json::json!(number))
+                                    }
+                                    _ => anim_frame_at_tick.push(serde_json::Value::Null),
+                                }
+                            }
+                        }
+                    }
+                    powers.push(serde_json::json!({
+                        "kind": "active",
+                        "name": state_str(state_prop(power_type, "_-V1q", activation), activation),
+                        "frame": state_num(state_prop(active_power, "_-c2l", activation), activation),
+                        "start": state_num(state_prop(active_power, "_-k4b", activation), activation),
+                        "background": state_bool(state_prop(active_power, "_-SQ", activation)),
+                        "startAnimFrame": state_num(state_prop(active_power, "_-D6j", activation), activation),
+                        "recoverTime": state_num(state_prop(active_power, "_-E5S", activation), activation),
+                        "recoverMod": state_num(state_prop(active_power, "_-01d", activation), activation),
+                        "animFrameAtTick": anim_frame_at_tick,
+                    }));
+                }
+                let background = state_prop(combat, "_-pX", activation);
+                if let Some(background_object) = background.as_object() {
+                    if let Some(background_vector) = background_object.as_vector_storage() {
+                        let values: Vec<Value<'gc>> = background_vector.iter().collect();
+                        drop(background_vector);
+                        for value in values {
+                            if value.as_object().is_some() {
+                                let power_type = state_prop(value, "_-V6B", activation);
+                                powers.push(serde_json::json!({
+                                    "kind": "background",
+                                    "name": state_str(state_prop(power_type, "_-V1q", activation), activation),
+                                    "frame": state_num(state_prop(value, "_-c2l", activation), activation),
+                                    "start": state_num(state_prop(value, "_-k4b", activation), activation),
+                                    "background": state_bool(state_prop(value, "_-SQ", activation)),
+                                }));
+                            }
+                        }
+                    }
+                }
+                let super_anim = state_prop(entity, "_-Vh", activation);
+                let anim_json = if super_anim.as_object().is_some() {
+                    let seq = state_prop(super_anim, "_-E2H", activation);
+                    if seq.as_object().is_some() {
+                        let current_move = state_prop(seq, "_-v1Y", activation);
+                        let mut move_traits = Vec::new();
+                        if let Some(move_object) = current_move.as_object() {
+                            for move_trait in move_object.instance_class().traits() {
+                                if !matches!(
+                                    move_trait.kind(),
+                                    TraitKind::Slot { .. } | TraitKind::Const { .. }
+                                ) {
+                                    continue;
+                                }
+                                let name = move_trait.name().local_name().to_utf8_lossy().to_string();
+                                let value = state_prop(current_move, &name, activation);
+                                match value {
+                                    Value::Number(number) => move_traits.push(serde_json::json!({
+                                        "name": name,
+                                        "number": number,
+                                    })),
+                                    Value::Integer(number) => move_traits.push(serde_json::json!({
+                                        "name": name,
+                                        "number": number,
+                                    })),
+                                    Value::Bool(flag) => move_traits.push(serde_json::json!({
+                                        "name": name,
+                                        "bool": flag,
+                                    })),
+                                    Value::String(text) => move_traits.push(serde_json::json!({
+                                        "name": name,
+                                        "string": text.to_utf8_lossy().to_string(),
+                                    })),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        let move_json = if current_move.as_object().is_some() {
+                            serde_json::json!({
+                                "moveIndex": state_num(state_prop(current_move, "_-r3Y", activation), activation),
+                                "moveName": state_str(state_prop(current_move, "_-012", activation), activation),
+                                "loopFrame": state_num(state_prop(current_move, "_-W1n", activation), activation),
+                                "recoverFrame": state_num(state_prop(current_move, "_-8d", activation), activation),
+                                "freeCriticalFrame": state_num(state_prop(current_move, "_-T6", activation), activation),
+                            })
+                        } else {
+                            serde_json::Value::Null
+                        };
+                        let gfx_type = state_prop(entity, "_-M6X", activation);
+                        let seq_class = seq
+                            .as_object()
+                            .map(|object| {
+                                object
+                                    .instance_class()
+                                    .name()
+                                    .local_name()
+                                    .to_utf8_lossy()
+                                    .to_string()
+                            })
+                            .unwrap_or_default();
+                        serde_json::json!({
+                            "seqClass": seq_class,
+                            "frameTime": state_num(state_prop(seq, "_-92m", activation), activation),
+                            "prevFrameTime": state_num(state_prop(seq, "_-R5P", activation), activation),
+                            "moveAnimSpeed": state_num(state_prop(gfx_type, "_-p1h", activation), activation),
+                            "envScale": state_num(state_prop(seq, "_-02W", activation), activation),
+                            "useEnv": state_bool(state_prop(seq, "_-b5H", activation)),
+                            "powerScale": state_num(state_prop(seq, "_-N46", activation), activation),
+                            "animSpeed": state_num(state_prop(entity, "_-I3r", activation), activation),
+                            "frameIndex": state_num(state_prop(seq, "_-K5u", activation), activation),
+                            "flags": state_num(state_prop(seq, "_-Z2Y", activation), activation),
+                            "commandFrame": state_num(state_prop(seq, "_-2S", activation), activation),
+                            "commandType": state_num(state_prop(seq, "_-FY", activation), activation),
+                            "commandLoop": state_bool(state_prop(seq, "_-U2y", activation)),
+                            "playingCritical": state_bool(state_prop(seq, "_-K2w", activation)),
+                            "recovering": state_bool(state_prop(seq, "_-zk", activation)),
+                            "softLoop": state_bool(state_prop(seq, "_-Q4Q", activation)),
+                            "endLoopCommand": state_bool(state_prop(seq, "_-56V", activation)),
+                            "transitioningToRun": state_bool(state_prop(seq, "_-X5w", activation)),
+                            "forceRecovery": state_bool(state_prop(seq, "_-W5S", activation)),
+                            "forceFireAndForget": state_bool(state_prop(seq, "_-16i", activation)),
+                            "endGracefully": state_bool(state_prop(seq, "_-Z48", activation)),
+                            "noTransition": state_bool(state_prop(seq, "_-01i", activation)),
+                            "c4S": state_bool(state_prop(seq, "_-c4S", activation)),
+                            "d24d": state_bool(state_prop(seq, "_-24d", activation)),
+                            "bJ": state_bool(state_prop(seq, "_-bJ", activation)),
+                            "W2U": state_bool(state_prop(seq, "_-W2U", activation)),
+                            "move": move_json,
+                            "moveTraits": move_traits,
+                            "powers": powers,
+                            "freezeEndTime": state_num(state_prop(entity, "_-v3x", activation), activation),
+                            "dashing": state_bool(state_prop(entity, "_-P50", activation)),
+                            "postDash": state_bool(state_prop(entity, "_-M3V", activation)),
+                            "dashId": state_num(state_prop(entity, "_-L3a", activation), activation),
+                            "dodgeDirection": state_num(state_prop(entity, "_-O5C", activation), activation),
+                            "dodgeTimeStamp": state_num(state_prop(entity, "_-H2b", activation), activation),
+                            "dodgeDuration": state_num(state_prop(entity, "_-Uy", activation), activation),
+                        })
+                    } else {
+                        serde_json::Value::Null
+                    }
+                } else {
+                    serde_json::Value::Null
+                };
+                let combat_stats = serde_json::json!({
+                    "impulseX": state_num(call_state(entity, "_-y3f", activation), activation),
+                    "impulseY": state_num(call_state(entity, "_-Z4Y", activation), activation),
+                    "hp": state_num(call_state(entity, "_-xE", activation), activation),
+                    "stunned": state_bool(call_state(entity, "_-5q", activation)),
+                    "stunStart": state_num(state_prop(entity, "_-v3y", activation), activation),
+                    "stunEnd": state_num(state_prop(entity, "_-46I", activation), activation),
+                    "stunDuration": state_num(state_prop(entity, "_-u4B", activation), activation),
+                    "impulseDefense": state_num(state_prop(combat, "_-13t", activation), activation),
+                    "impulseMult": state_num(state_prop(combat, "_-G4s", activation), activation),
+                    "stunDefense": state_num(state_prop(combat, "_-U2F", activation), activation),
+                    "damageMult": state_num(state_prop(combat, "_-nR", activation), activation),
+                    "damageDefense": state_num(state_prop(combat, "_-o3t", activation), activation),
+                    "getGravity": state_num(call_state(entity, "_-X2w", activation), activation),
+                    "gfxCacheID": state_num(state_prop(entity, "_-84Q", activation), activation),
+                    "allowVelocityOverride": state_bool(state_prop(combat, "_-q1G", activation)),
+                    "dodgeSpeedMult": state_num(state_prop(entity, "_-T5L", activation), activation),
+                    "dodgeDuration": state_num(state_prop(entity, "_-Uy", activation), activation),
+                    "dodgeTime": state_num(state_prop(entity, "_-H2b", activation), activation),
+                });
                 players.push(serde_json::json!({
                     "id": state_num(state_prop(entity, "_-11", activation), activation),
                     "entState": state_num(state_prop(entity, "_-65w", activation), activation),
@@ -312,7 +510,9 @@ fn dump_debug_11000<'gc>(
                     "airAccelChange": state_num(state_prop(combat, "_-R4I", activation), activation),
                     "hasPower": state_prop(combat, "_-o3I", activation).as_object().is_some(),
                     "surface": surface_json,
+                    "combatStats": combat_stats,
                     "collision": collision_json,
+                    "anim": anim_json,
                 }));
             }
         }
@@ -322,6 +522,8 @@ fn dump_debug_11000<'gc>(
         "frame": frame,
         "t": time,
         "serverTime": state_num(state_prop(game, "_-94N", activation), activation),
+        "timestep": state_num(state_prop(game, "_-Es", activation), activation),
+        "timeThisTick": state_num(state_prop(game, "_-v4J", activation), activation),
         "gameState": state_num(state_prop(game, "_-w35", activation), activation),
         "level": node_level(state_prop(game, "_-I1f", activation), activation),
         "levelLayer": node_transform(state_prop(game, "_-N1L", activation), activation),
@@ -480,6 +682,19 @@ fn state_prop<'gc>(
         .unwrap_or(Value::Undefined)
 }
 
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn debug_prop_num<'gc>(
+    obj: Value<'gc>,
+    name: &str,
+    activation: &mut Activation<'_, 'gc>,
+) -> f64 {
+    state_num(state_prop(obj, name, activation), activation)
+}
+
+pub(crate) fn dump_frame() -> u64 {
+    DUMP_STATE_FRAME.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn state_num<'gc>(value: Value<'gc>, activation: &mut Activation<'_, 'gc>) -> f64 {
     value
         .coerce_to_number(activation)
@@ -492,6 +707,17 @@ fn state_bool(value: Value<'_>) -> bool {
     matches!(value, Value::Bool(true))
 }
 
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn debug_value_xy<'gc>(
+    value: Value<'gc>,
+    activation: &mut Activation<'_, 'gc>,
+) -> Option<(f64, f64)> {
+    let object = Value::Object(value.as_object()?);
+    let x = state_num(state_prop(object, "x", activation), activation);
+    let y = state_num(state_prop(object, "y", activation), activation);
+    Some((x, y))
+}
+
 fn state_str<'gc>(
     value: Value<'gc>,
     activation: &mut Activation<'_, 'gc>,
@@ -502,7 +728,7 @@ fn state_str<'gc>(
         .unwrap_or_default()
 }
 
-fn call_state<'gc>(
+pub(crate) fn call_state<'gc>(
     obj: Value<'gc>,
     name: &str,
     activation: &mut Activation<'_, 'gc>,
@@ -513,6 +739,165 @@ fn call_state<'gc>(
         activation,
     )
     .unwrap_or(Value::Undefined)
+}
+
+/// `RUFFLE_TRACE_ACCEL=1`: the narrow active-power accel probe only.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn trace_accel_enabled() -> bool {
+    std::env::var_os("RUFFLE_TRACE_ACCEL").is_some()
+}
+
+/// Diagnostic dump of an entity's current hurtbox type and first width/height.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn debug_hurtbox<'gc>(
+    entity: Value<'gc>,
+    activation: &mut Activation<'_, 'gc>,
+) -> String {
+    let hurtbox = call_state(entity, "_-p3N", activation);
+    if hurtbox.as_object().is_none() {
+        return "hurtbox=none".to_string();
+    }
+    let name = state_str(state_prop(hurtbox, "_-c5b", activation), activation);
+    let widths = state_prop(hurtbox, "_-Q4m", activation);
+    let heights = state_prop(hurtbox, "_-X5S", activation);
+    let first = |value: Value<'gc>| -> f64 {
+        let Some(object) = value.as_object() else {
+            return f64::NAN;
+        };
+        let Some(vector) = object.as_vector_storage() else {
+            return f64::NAN;
+        };
+        match vector.iter().next() {
+            Some(Value::Number(number)) => number,
+            Some(Value::Integer(number)) => number as f64,
+            _ => f64::NAN,
+        }
+    };
+    format!(
+        "hurtbox={name} w={} h={}",
+        first(widths),
+        first(heights)
+    )
+}
+
+/// Diagnostic dump of the `PlayerInput` attack/jump gates for the input owner.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn debug_player_input<'gc>(
+    input: Value<'gc>,
+    activation: &mut Activation<'_, 'gc>,
+) -> String {
+    let entity = state_prop(input, "_-I3I", activation);
+    let last_miss = state_num(state_prop(entity, "_-Xb", activation), activation);
+    let dodge_delay = state_num(state_prop(entity, "_-I5A", activation), activation);
+    let dodge_attack_delay = state_num(state_prop(entity, "_-t4D", activation), activation);
+    let aerial = state_num(state_prop(entity, "_-26T", activation), activation);
+    let post_dash = state_num(state_prop(entity, "_-M3V", activation), activation);
+    let dash_id = state_num(state_prop(entity, "_-L3a", activation), activation);
+    let dashing = state_num(state_prop(entity, "_-P50", activation), activation);
+    let ent_flags = state_num(state_prop(entity, "_-e3e", activation), activation);
+    let post_dodge = state_num(state_prop(entity, "_-f6R", activation), activation);
+    let dodge_locked = state_num(state_prop(entity, "_-u55", activation), activation);
+    let dodge_type = state_num(state_prop(entity, "_-Q42", activation), activation);
+    let power_cr = state_num(
+        state_prop(state_prop(entity, "_-Kc", activation), "_-cr", activation),
+        activation,
+    );
+    format!(
+        "lastAttackMiss={last_miss} dodgeDelay={dodge_delay} dodgeAttackDelay={dodge_attack_delay} aerial={aerial} postDash={post_dash} dashId={dash_id} dashing={dashing} entFlags={ent_flags} postDodge={post_dodge} dodgeLocked={dodge_locked} dodgeType={dodge_type} powerCr={power_cr}"
+    )
+}
+
+/// Diagnostic dump of the active power's cast cursor and `GetAccelMult` result.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) fn debug_active_power<'gc>(
+    entity: Value<'gc>,
+    time: f64,
+    activation: &mut Activation<'_, 'gc>,
+) -> String {
+    let combat = state_prop(entity, "_-Kc", activation);
+    let active = state_prop(combat, "_-o3I", activation);
+    if active.as_object().is_none() {
+        return "none".to_string();
+    }
+    let power_type = state_prop(active, "_-V6B", activation);
+    let name = state_str(state_prop(power_type, "_-r1e", activation), activation);
+    let cast_index = state_num(state_prop(active, "_-X2G", activation), activation);
+    let fire_time = state_num(state_prop(active, "_-82O", activation), activation);
+    let start = state_num(state_prop(active, "_-k4b", activation), activation);
+    let dodge_canceled = state_num(state_prop(active, "_-d38", activation), activation);
+    let recover_time = state_num(state_prop(active, "_-E5S", activation), activation);
+    let taunt_released = state_num(state_prop(active, "_-u5d", activation), activation);
+    let heavy_pressed = state_num(state_prop(active, "_-82f", activation), activation);
+    let time_charged = state_num(state_prop(active, "_-a6i", activation), activation);
+    let t1b = state_prop(power_type, "_-T1b", activation);
+    let mut t1b_len = 0;
+    let mut t1b_first = f64::NAN;
+    if let Some(object) = t1b.as_object() {
+        if let Some(vector) = object.as_vector_storage() {
+            t1b_len = vector.length();
+            t1b_first = match vector.iter().next() {
+                Some(Value::Number(number)) => number,
+                Some(Value::Integer(number)) => number as f64,
+                _ => f64::NAN,
+            };
+        }
+    }
+    let accel = active
+        .call_public_property(
+            AvmString::new_utf8(activation.gc(), "_-x1E"),
+            FunctionArgs::from_slice(&[Value::from(time)]),
+            activation,
+        )
+        .map(|value| state_num(value, activation))
+        .unwrap_or(f64::NAN);
+    let t1b_is_null = t1b.as_object().is_none();
+    let mut vectors = String::new();
+    if let Some(object) = power_type.as_object() {
+        let mut class = Some(object.instance_class());
+        while let Some(current) = class {
+            for trait_ in current.traits() {
+                if matches!(
+                    trait_.kind(),
+                    TraitKind::Method { .. } | TraitKind::Setter { .. } | TraitKind::Class { .. }
+                ) {
+                    continue;
+                }
+                let Ok(value) = Value::from(object)
+                    .get_public_property(trait_.name().local_name(), activation)
+                else {
+                    continue;
+                };
+                let Some(vector_value) = value.as_object() else {
+                    continue;
+                };
+                let Some(vector) = vector_value.as_vector_storage() else {
+                    continue;
+                };
+                let len = vector.length();
+                if len == 0 || len > 40 {
+                    continue;
+                }
+                let first = match vector.iter().next() {
+                    Some(Value::Number(number)) => number,
+                    Some(Value::Integer(number)) => number as f64,
+                    _ => continue,
+                };
+                if !vectors.is_empty() {
+                    vectors.push('|');
+                }
+                vectors.push_str(&format!(
+                    "{}:{}:{}",
+                    trait_.name().local_name(),
+                    len,
+                    first
+                ));
+            }
+            class = current.super_class();
+        }
+    }
+    format!(
+        "name={name} cast={cast_index} fire={fire_time} start={start} recover={recover_time} tauntReleased={taunt_released} heavy={heavy_pressed} charged={time_charged} dodgeCanceled={dodge_canceled} t1bNull={t1b_is_null} t1bLen={t1b_len} t1b0={t1b_first} accel={accel} vectors=[{vectors}]"
+    )
 }
 
 static AUTO_TRAINING_STARTED: std::sync::atomic::AtomicBool =
@@ -1054,6 +1439,48 @@ fn dump_items<'gc>(
     items
 }
 
+#[cfg(not(target_family = "wasm"))]
+fn dump_debug_properties<'gc>(
+    object: crate::avm2::object::Object<'gc>,
+    activation: &mut Activation<'_, 'gc>,
+) -> serde_json::Value {
+    let mut values = serde_json::Map::new();
+    let mut class = Some(object.instance_class());
+    while let Some(current) = class {
+        for trait_ in current.traits() {
+            if matches!(
+                trait_.kind(),
+                TraitKind::Method { .. } | TraitKind::Setter { .. } | TraitKind::Class { .. }
+            ) {
+                continue;
+            }
+            let name = trait_.name().local_name().to_string();
+            let Ok(value) = Value::from(object)
+                .get_public_property(trait_.name().local_name(), activation)
+            else {
+                continue;
+            };
+            match value {
+                Value::Number(number) => {
+                    values.insert(name, serde_json::json!(number));
+                }
+                Value::Integer(number) => {
+                    values.insert(name, serde_json::json!(number));
+                }
+                Value::Bool(flag) => {
+                    values.insert(name, serde_json::json!(flag));
+                }
+                Value::String(text) => {
+                    values.insert(name, serde_json::json!(text.to_string()));
+                }
+                _ => {}
+            }
+        }
+        class = current.super_class();
+    }
+    serde_json::Value::Object(values)
+}
+
 /// Dump companions (sidekicks and similar persistent entities).
 ///
 /// The game also maintains a `game._-c1S` vector, but it is rebuilt during
@@ -1163,6 +1590,26 @@ fn dump_state_11000<'gc>(
     };
     let mut players = Vec::new();
     let mut companions = Vec::new();
+    let mut level_debug = serde_json::Value::Null;
+    #[cfg(not(target_family = "wasm"))]
+    let debug_frame = std::env::var("RUFFLE_SPAWNBOT_DEBUG_FRAME")
+        .ok()
+        .map(|value| {
+            value == "all"
+                || value.parse::<u64>().ok().map_or(false, |frame| {
+                    frame == DUMP_STATE_FRAME.load(std::sync::atomic::Ordering::Relaxed)
+                })
+        })
+        .unwrap_or(false);
+    #[cfg(target_family = "wasm")]
+    let debug_frame = false;
+    #[cfg(not(target_family = "wasm"))]
+    if debug_frame {
+        let level = state_prop(game, "_-I1f", activation);
+        if let Some(level_obj) = level.as_object() {
+            level_debug = dump_debug_properties(level_obj, activation);
+        }
+    }
     if let Some(object) = entities.as_object() {
         if let Some(vector) = object.as_vector_storage() {
             let items: Vec<Value<'gc>> = vector.iter().collect();
@@ -1204,6 +1651,8 @@ fn dump_state_11000<'gc>(
                 let mut move_index = 0.0;
                 let mut move_name = String::new();
                 let mut frame_index = 0.0;
+                let mut seq_debug = serde_json::Value::Null;
+                let mut move_debug = serde_json::Value::Null;
                 let super_anim = state_prop(entity, "_-Vh", activation);
                 if super_anim.as_object().is_some() {
                     let seq = state_prop(super_anim, "_-E2H", activation);
@@ -1214,6 +1663,15 @@ fn dump_state_11000<'gc>(
                                 state_str(state_prop(anim_def, "_-K1j", activation), activation);
                         }
                         let current_move = state_prop(seq, "_-v1Y", activation);
+                        #[cfg(not(target_family = "wasm"))]
+                        if debug_frame {
+                            if let Some(seq_obj) = seq.as_object() {
+                                seq_debug = dump_debug_properties(seq_obj, activation);
+                            }
+                            if let Some(move_obj) = current_move.as_object() {
+                                move_debug = dump_debug_properties(move_obj, activation);
+                            }
+                        }
                         if current_move.as_object().is_some() {
                             move_index =
                                 state_num(state_prop(current_move, "_-r3Y", activation), activation);
@@ -1223,15 +1681,39 @@ fn dump_state_11000<'gc>(
                         frame_index = state_num(state_prop(seq, "_-K5u", activation), activation);
                     }
                 }
+                let mut entity_debug = serde_json::Value::Null;
+                let mut combat_debug = serde_json::Value::Null;
+                let mut surface_debug = serde_json::Value::Null;
+                let mut physics_debug = serde_json::Value::Null;
+                let impulse_x = state_num(call_state(entity, "_-y3f", activation), activation);
+                let impulse_y = state_num(call_state(entity, "_-Z4Y", activation), activation);
+                #[cfg(not(target_family = "wasm"))]
+                if debug_frame {
+                    if let Some(entity_obj) = entity.as_object() {
+                        entity_debug = dump_debug_properties(entity_obj, activation);
+                    }
+                    if let Some(combat_obj) = combat.as_object() {
+                        combat_debug = dump_debug_properties(combat_obj, activation);
+                    }
+                    let surface = state_prop(entity, "_-96f", activation);
+                    if let Some(surface_obj) = surface.as_object() {
+                        surface_debug = dump_debug_properties(surface_obj, activation);
+                    }
+                    let physics = state_prop(entity, "_-Z2G", activation);
+                    if let Some(physics_obj) = physics.as_object() {
+                        physics_debug = dump_debug_properties(physics_obj, activation);
+                    }
+                }
                 let player = serde_json::json!({
                     "id": state_num(state_prop(entity, "_-11", activation), activation),
-                    "name": state_str(state_prop(entity, "_-z33", activation), activation),
-                    "x": state_num(call_state(entity, "_-p3V", activation), activation),
+                    "name": state_str(state_prop(entity, "_-z33", activation), activation),                    "x": state_num(call_state(entity, "_-p3V", activation), activation),
                     "y": state_num(call_state(entity, "_-Sb", activation), activation),
                     "centerX": state_num(call_state(entity, "_-p5a", activation), activation),
                     "centerY": state_num(call_state(entity, "_-d5F", activation), activation),
                     "vx": state_num(call_state(entity, "_-a3w", activation), activation),
                     "vy": state_num(call_state(entity, "_-M6G", activation), activation),
+                    "impulseX": impulse_x,
+                    "impulseY": impulse_y,
                     "hp": state_num(call_state(entity, "_-xE", activation), activation),
                     "state": state_num(state_prop(entity, "_-65w", activation), activation),
                     "facingLeft": state_bool(call_state(entity, "_-r35", activation)),
@@ -1250,17 +1732,28 @@ fn dump_state_11000<'gc>(
                     "moveIndex": move_index,
                     "moveName": move_name,
                     "frameIndex": frame_index,
+                    "debugSeq": seq_debug,
+                    "debugMove": move_debug,
+                    "debugEntity": entity_debug,
+                    "debugCombat": combat_debug,
+                    "debugSurface": surface_debug,
+                    "debugPhysics": physics_debug,
                 });
                 players.push(player);
 
                 let spawn_bot = state_prop(entity, "_-k5S", activation);
-                if spawn_bot.as_object().is_some() {
-                    companions.push(serde_json::json!({
+                if let Some(spawn_bot_obj) = spawn_bot.as_object() {
+                    let mut row = serde_json::json!({
                         "x": state_num(state_prop(spawn_bot, "_-J2c", activation), activation),
                         "y": state_num(state_prop(spawn_bot, "_-b3h", activation), activation),
                         "parentId": state_num(state_prop(entity, "_-11", activation), activation),
                         "kind": "spawnbot",
-                    }));
+                    });
+                    #[cfg(not(target_family = "wasm"))]
+                    if debug_frame {
+                        row["debug"] = dump_debug_properties(spawn_bot_obj, activation);
+                    }
+                    companions.push(row);
                 }
             }
         }
@@ -1352,12 +1845,25 @@ fn dump_state_11000<'gc>(
                     continue;
                 };
                 let companion = Value::from(companion_obj);
-                companions.push(serde_json::json!({
+                let mut row = serde_json::json!({
                     "x": state_num(state_prop(companion, "_-J2c", activation), activation),
                     "y": state_num(state_prop(companion, "_-b3h", activation), activation),
                     "parentId": 0,
                     "kind": "companion",
-                }));
+                });
+                #[cfg(not(target_family = "wasm"))]
+                if debug_frame {
+                    row["debug"] = dump_debug_properties(companion_obj, activation);
+                    let combat = state_prop(companion, "_-8K", activation);
+                    if let Some(combat_obj) = combat.as_object() {
+                        row["combat"] = dump_debug_properties(combat_obj, activation);
+                    }
+                    let companion_type = state_prop(companion, "_-l57", activation);
+                    if let Some(type_obj) = companion_type.as_object() {
+                        row["type"] = dump_debug_properties(type_obj, activation);
+                    }
+                }
+                companions.push(row);
             }
         }
     }
@@ -1371,6 +1877,7 @@ fn dump_state_11000<'gc>(
         "items": items,
         "companions": companions,
         "boxes": [],
+        "debugLevel": level_debug,
     });
 
     #[cfg(not(target_family = "wasm"))]

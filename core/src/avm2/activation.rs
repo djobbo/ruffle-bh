@@ -32,6 +32,32 @@ use ruffle_macros::istr;
 use std::cell::Cell;
 use swf::avm2::types::MethodFlags as AbcMethodFlags;
 
+/// Whether the instrumented `RUFFLE_TRACE_VELOCITY` probes are enabled.
+#[cfg(not(target_family = "wasm"))]
+fn trace_velocity_enabled() -> bool {
+    use std::sync::OnceLock;
+
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("RUFFLE_TRACE_VELOCITY").is_some())
+}
+
+/// AVM2 method bodies requested by `RUFFLE_TRACE_BODIES`, parsed once.
+#[cfg(not(target_family = "wasm"))]
+fn traced_method_bodies() -> Option<&'static [u32]> {
+    use std::sync::OnceLock;
+
+    static BODIES: OnceLock<Option<Vec<u32>>> = OnceLock::new();
+    BODIES
+        .get_or_init(|| {
+            std::env::var("RUFFLE_TRACE_BODIES").ok().map(|list| {
+                list.split(',')
+                    .filter_map(|body| body.trim().parse::<u32>().ok())
+                    .collect()
+            })
+        })
+        .as_deref()
+}
+
 /// Represents a single activation of a given AVM2 function or keyframe.
 pub struct Activation<'a, 'gc: 'a> {
     /// The number of locals this method uses.
@@ -397,6 +423,306 @@ impl<'a, 'gc> Activation<'a, 'gc> {
         // set its own via dxns opcodes.
         if !method.sets_dxns() {
             self.default_xml_namespace = caller_dxns;
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        if crate::avm2::globals::__ruffle__::trace_accel_enabled() {
+            let frame = crate::avm2::globals::__ruffle__::dump_frame();
+            if (400..=460).contains(&frame)
+                && (method.abc_method_index() == 2984
+                    || matches!(method.abc_method_body_index(), Some(2945)))
+            {
+                let time = if user_arguments.len() > 0 {
+                    user_arguments
+                        .get_at(0)
+                        .coerce_to_number(self)
+                        .unwrap_or(f64::NAN)
+                } else {
+                    f64::NAN
+                };
+                let power = crate::avm2::globals::__ruffle__::debug_active_power(this.into(), time, self);
+                eprintln!("ACCELDBG frame={frame} time={time} {power}");
+            }
+            if (430..=441).contains(&frame)
+                && (method.abc_method_index() == 6313
+                    || matches!(method.abc_method_body_index(), Some(6263)))
+            {
+                let input = crate::avm2::globals::__ruffle__::debug_player_input(this.into(), self);
+                eprintln!("INPUTDBG frame={frame} {input}");
+            }
+            if (430..=441).contains(&frame)
+                && (method.abc_method_index() == 6334
+                    || matches!(method.abc_method_body_index(), Some(6284)))
+            {
+                let mut args = Vec::new();
+                for index in 0..user_arguments.len() {
+                    let arg = user_arguments.get_at(index);
+                    args.push(match arg {
+                        Value::Object(_) => "<object>".to_string(),
+                        Value::String(_) => "<string>".to_string(),
+                        other => format!("{other:?}"),
+                    });
+                }
+                let input = crate::avm2::globals::__ruffle__::debug_player_input(this.into(), self);
+                eprintln!(
+                    "DOPOWER frame={frame} argc={} args=[{}] {input}",
+                    user_arguments.len(),
+                    args.join(",")
+                );
+            }
+            if frame == 438
+                && (method.abc_method_index() == 3142
+                    || matches!(method.abc_method_body_index(), Some(3103)))
+            {
+                let id = crate::avm2::globals::__ruffle__::debug_prop_num(
+                    this.into(),
+                    "_-11",
+                    self,
+                );
+                let hurtbox =
+                    crate::avm2::globals::__ruffle__::debug_hurtbox(this.into(), self);
+                let mut args = Vec::new();
+                for index in 0..user_arguments.len() {
+                    args.push(format!(
+                        "{:?}",
+                        user_arguments
+                            .get_at(index)
+                            .coerce_to_number(self)
+                            .unwrap_or(f64::NAN)
+                    ));
+                }
+                eprintln!("CAPSULEDBG frame={frame} id={id} {hurtbox} argc={} args=[{}]", user_arguments.len(), args.join(","));
+            }
+            if frame == 438
+                && (method.abc_method_index() == 3149
+                    || matches!(method.abc_method_body_index(), Some(3110)))
+            {
+                let id = crate::avm2::globals::__ruffle__::debug_prop_num(
+                    this.into(),
+                    "_-11",
+                    self,
+                );
+                let ent_state = crate::avm2::globals::__ruffle__::debug_prop_num(
+                    this.into(),
+                    "_-65w",
+                    self,
+                );
+                let dodge_locked = crate::avm2::globals::__ruffle__::debug_prop_num(
+                    this.into(),
+                    "_-u55",
+                    self,
+                );
+                let native_team = crate::avm2::globals::__ruffle__::debug_prop_num(
+                    this.into(),
+                    "_-25G",
+                    self,
+                );
+                let arg2 = if user_arguments.len() > 1 {
+                    user_arguments.get_at(1).coerce_to_number(self).unwrap_or(f64::NAN)
+                } else {
+                    f64::NAN
+                };
+                let arg3 = if user_arguments.len() > 2 {
+                    user_arguments.get_at(2).coerce_to_number(self).unwrap_or(f64::NAN)
+                } else {
+                    f64::NAN
+                };
+                eprintln!(
+                    "PICKUPDBG frame={frame} id={id} mTeam={native_team} entState={ent_state} dodgeLocked={dodge_locked} arg2={arg2} arg3={arg3}"
+                );
+            }
+            if (430..=441).contains(&frame)
+                && (method.abc_method_index() == 1700
+                    || matches!(method.abc_method_body_index(), Some(1701)))
+            {
+                let mut args = Vec::new();
+                for index in 0..user_arguments.len() {
+                    let arg = user_arguments.get_at(index);
+                    args.push(match arg {
+                        Value::Object(_) => "<object>".to_string(),
+                        Value::String(_) => "<string>".to_string(),
+                        other => format!("{other:?}"),
+                    });
+                }
+                eprintln!(
+                    "QUEUEPOWER frame={frame} argc={} args=[{}]",
+                    user_arguments.len(),
+                    args.join(",")
+                );
+            }
+        }
+        #[cfg(not(target_family = "wasm"))]
+        if trace_velocity_enabled() || traced_method_bodies().is_some() {
+            let method_index = method.abc_method_body_index();
+            let frame = crate::avm2::globals::__ruffle__::dump_frame();
+            if let Some(bodies) = traced_method_bodies() {
+                let wanted = method_index
+                    .map(|index| bodies.contains(&index))
+                    .unwrap_or(false)
+                    || bodies.contains(&method.abc_method_index());
+                if wanted && (1..=6000).contains(&frame) {
+                    let mut args = Vec::new();
+                    for index in 0..user_arguments.len() {
+                        let arg = user_arguments.get_at(index);
+                        args.push(match arg {
+                            Value::Object(_) => "<object>".to_string(),
+                            Value::String(_) => "<string>".to_string(),
+                            other => format!("{other:?}"),
+                        });
+                    }
+                    eprintln!(
+                        "BODYTRACE frame={frame} body={method_index:?} method={} argc={} args=[{}]",
+                        method.abc_method_index(),
+                        user_arguments.len(),
+                        args.join(",")
+                    );
+                }
+            }
+            if trace_velocity_enabled() {
+            if (1..=6000).contains(&frame)
+                && (matches!(method_index, Some(3013) | Some(3026))
+                    || matches!(method.abc_method_index(), 3052 | 3065))
+            {
+                let id_value = crate::avm2::globals::__ruffle__::call_state(this, "_-11", self);
+                let id = id_value.coerce_to_number(self).unwrap_or(0.0);
+                let arg0 = if user_arguments.len() > 0 {
+                    user_arguments
+                        .get_at(0)
+                        .coerce_to_number(self)
+                        .unwrap_or(0.0)
+                } else {
+                    f64::NAN
+                };
+                let arg1 = if user_arguments.len() > 1 {
+                    user_arguments
+                        .get_at(1)
+                        .coerce_to_number(self)
+                        .unwrap_or(0.0)
+                } else {
+                    f64::NAN
+                };
+                eprintln!(
+                    "JUMPDBG frame={frame} body={method_index:?} method={} id={id} argc={} arg0={arg0} arg1={arg1}",
+                    method.abc_method_index(),
+                    user_arguments.len()
+                );
+                if frame >= 0 && frame <= 6000 {
+                    let ent_state =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-65w", self);
+                    let dashing =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-P50", self);
+                    let post_dash =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-M3V", self);
+                    let dodge_delay =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-I5A", self);
+                    let dodge_attack_delay =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-t4D", self);
+                    let last_attack_miss =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-Xb", self);
+                    let stun_ended =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-46I", self);
+                    let post_dodge =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-f6R", self);
+                    let aerial =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-26T", self);
+                    let freeze_end =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-v3x", self);
+                    let wall_sliding =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-r51", self);
+                    let airborne = crate::avm2::globals::__ruffle__::call_state(
+                        this,
+                        "IsAirborne",
+                        self,
+                    );
+                    let airborne_num = airborne.coerce_to_number(self).unwrap_or(f64::NAN);
+                    let vel_x = crate::avm2::globals::__ruffle__::call_state(this, "_-a3w", self)
+                        .coerce_to_number(self)
+                        .unwrap_or(f64::NAN);
+                    let impulse_x = crate::avm2::globals::__ruffle__::call_state(this, "_-y3f", self)
+                        .coerce_to_number(self)
+                        .unwrap_or(f64::NAN);
+                    let jump_x_impulse =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-13G", self);
+                    let dash_jumping =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-no", self);
+                    let dash_running =
+                        crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-w47", self);
+                    let is_running = crate::avm2::globals::__ruffle__::call_state(this, "_-81n", self)
+                        .coerce_to_number(self)
+                        .unwrap_or(f64::NAN);
+                    let max_run = crate::avm2::globals::__ruffle__::call_state(this, "_-K64", self)
+                        .coerce_to_number(self)
+                        .unwrap_or(f64::NAN);
+                    eprintln!(
+                        "JUMPFIELDS frame={frame} body={method_index:?} method={} id={id} entState={ent_state} dashing={dashing} postDash={post_dash} dodgeDelay={dodge_delay} dodgeAttackDelay={dodge_attack_delay} lastAttackMiss={last_attack_miss} stunEnded={stun_ended} postDodge={post_dodge} aerial={aerial} freezeEnd={freeze_end} wallSliding={wall_sliding} airborne={airborne_num} velX={vel_x} impulseX={impulse_x} jumpXImpulse={jump_x_impulse} dashJumping={dash_jumping} dashRunning={dash_running} isRunning={is_running} maxRun={max_run}",
+                        method.abc_method_index()
+                    );
+                }
+            }
+            if (415..=425).contains(&frame)
+                && (method.abc_method_index() == 2984 || matches!(method_index, Some(2945)))
+            {
+                let id_value = crate::avm2::globals::__ruffle__::call_state(this, "_-11", self);
+                let id = id_value.coerce_to_number(self).unwrap_or(0.0);
+                let vel_x = crate::avm2::globals::__ruffle__::call_state(this, "_-a3w", self)
+                    .coerce_to_number(self)
+                    .unwrap_or(f64::NAN);
+                let impulse_x = crate::avm2::globals::__ruffle__::call_state(this, "_-y3f", self)
+                    .coerce_to_number(self)
+                    .unwrap_or(f64::NAN);
+                let post_dash =
+                    crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-M3V", self);
+                let aerial =
+                    crate::avm2::globals::__ruffle__::debug_prop_num(this, "_-26T", self);
+                eprintln!(
+                    "TICKPHYS frame={frame} id={id} velX={vel_x} impulseX={impulse_x} postDash={post_dash} aerial={aerial}"
+                );
+            }
+            if frame == 418 && user_arguments.len() >= 2 {
+                let value = user_arguments
+                    .get_at(1)
+                    .coerce_to_number(self)
+                    .unwrap_or(0.0);
+                if matches!(method_index, Some(3159)) && (value + 35.642944).abs() < 1e-6 {
+                    let stack = self
+                        .avm2()
+                        .call_stack()
+                        .borrow()
+                        .method_indices();
+                    eprintln!("VELCALL value={value} stack={stack:?}");
+                }
+                use std::sync::atomic::{AtomicUsize, Ordering};
+                static ARG_COUNT: AtomicUsize = AtomicUsize::new(0);
+                if ARG_COUNT.fetch_add(1, Ordering::Relaxed) < 20000 {
+                    let slot = user_arguments
+                        .get_at(0)
+                        .coerce_to_number(self)
+                        .unwrap_or(0.0);
+                    if (6500.0..=6800.0).contains(&slot) || (6500.0..=6800.0).contains(&value) {
+                        eprintln!("ARG2DBG body={method_index:?} slot={slot} value={value}");
+                    }
+                }
+            }
+            if method.abc_method_index() == 2908
+                || method.abc_method_index() == 2909
+                || matches!(method_index, Some(2908) | Some(2909))
+            {
+                let frame = crate::avm2::globals::__ruffle__::dump_frame();
+                if (400..=412).contains(&frame) {
+                    let value = if user_arguments.len() > 0 {
+                        user_arguments
+                            .get_at(0)
+                            .coerce_to_number(self)
+                            .unwrap_or(0.0)
+                    } else {
+                        f64::NAN
+                    };
+                    eprintln!(
+                        "VELDBG frame={frame} method={method_index:?} value={value}"
+                    );
+                }
+            }
+            }
         }
 
         Ok(())

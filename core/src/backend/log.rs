@@ -15,11 +15,11 @@ impl NullLogBackend {
 
 impl LogBackend for NullLogBackend {
     fn avm_trace(&self, message: &str) {
-        tracing::info!(target: "avm_trace", "{}", message);
+        tracing::warn!(target: "avm_trace", "{}", message);
     }
 
     fn avm_warning(&self, message: &str) {
-        tracing::info!(target: "avm_warning", "{}", message);
+        tracing::warn!(target: "avm_warning", "{}", message);
     }
 }
 
